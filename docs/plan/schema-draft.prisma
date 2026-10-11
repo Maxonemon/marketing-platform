@@ -1,0 +1,333 @@
+// DRAFT from the plan. Not used yet.
+// Prisma 7+ changed setup (prisma.config.ts, generator "prisma-client", driver adapters).
+// The database ticket must read the current Prisma docs before using this.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum TaskType {
+  COMPETITOR_RESEARCH
+  CONTENT_GENERATION
+  LEAD_CAMPAIGN
+  PERFORMANCE_REVIEW
+  CUSTOM
+}
+
+enum TaskStatus {
+  QUEUED
+  RUNNING
+  WAITING_APPROVAL
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  EXECUTED
+  EXECUTION_FAILED
+}
+
+enum ContentType {
+  SOCIAL_POST
+  AD_COPY
+  EMAIL
+  LANDING_PAGE
+  HEADLINE
+  LEAD_MAGNET
+}
+
+enum IntegrationType {
+  SLACK
+  EMAIL
+  META_ADS
+  CANVA
+}
+
+enum SnapshotType {
+  INITIAL
+  CHANGE
+  CHECK
+  ERROR
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  accounts      Account[]
+  sessions      Session[]
+  memberships   WorkspaceMember[]
+  createdTasks  AgentTask[] @relation("TaskCreator")
+  decisions     Approval[] @relation("ApprovalReviewer")
+  activity      ActivityLog[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId  String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  members   WorkspaceMember[]
+  brands    Brand[]
+  tasks     AgentTask[]
+  schedules WorkflowSchedule[]
+  integrations Integration[]
+  activity  ActivityLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(MEMBER)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+}
+
+model Brand {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  name         String
+  websiteUrl   String?
+  industry     String?
+  audience     String?  @db.Text
+  voice        String?  @db.Text
+  brandRules   Json?
+  offers       Json?
+  keywords     Json?
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  competitors  Competitor[]
+  tasks        AgentTask[]
+  content      ContentAsset[]
+  schedules    WorkflowSchedule[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+model Competitor {
+  id          String   @id @default(cuid())
+  brandId     String
+  name        String
+  pageUrl     String
+  active      Boolean  @default(true)
+  lastChecked DateTime?
+
+  brand       Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  snapshots   CompetitorSnapshot[]
+
+  createdAt   DateTime @default(now())
+
+  @@unique([brandId, pageUrl])
+  @@index([brandId, active])
+}
+
+model CompetitorSnapshot {
+  id             String       @id @default(cuid())
+  competitorId   String
+  type           SnapshotType @default(CHECK)
+  pageTitle      String?
+  pageText       String?      @db.Text
+  contentHash    String?
+  extractedData  Json?
+  changes        Json?
+  errorMessage   String?      @db.Text
+  checkedAt      DateTime     @default(now())
+
+  competitor Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+
+  @@index([competitorId, checkedAt])
+}
+
+model WorkflowSchedule {
+  id          String   @id @default(cuid())
+  workspaceId String
+  brandId     String?
+  name        String
+  taskType    TaskType
+  cron        String
+  timezone    String   @default("UTC")
+  config      Json?
+  enabled     Boolean  @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  brand     Brand?    @relation(fields: [brandId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([enabled, nextRunAt])
+}
+
+model AgentTask {
+  id          String     @id @default(cuid())
+  workspaceId String
+  brandId     String?
+  createdById String?
+  type        TaskType
+  status      TaskStatus @default(QUEUED)
+  title       String
+  input       Json?
+  result      Json?
+  error       String?    @db.Text
+  attempts    Int        @default(0)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  brand     Brand?    @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  content   ContentAsset[]
+  approvals Approval[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId, status, createdAt])
+  @@index([brandId, type])
+}
+
+model ContentAsset {
+  id          String      @id @default(cuid())
+  brandId     String
+  taskId      String?
+  type        ContentType
+  title       String?
+  body        String      @db.Text
+  platform    String?
+  variant     Int         @default(1)
+  metadata    Json?
+  version     Int         @default(1)
+
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  task  AgentTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([brandId, type, createdAt])
+  @@index([taskId])
+}
+
+model Approval {
+  id             String         @id @default(cuid())
+  taskId         String
+  reviewerId     String?
+  status         ApprovalStatus @default(PENDING)
+  actionType     String
+  payload        Json
+  payloadHash    String
+  comment        String?        @db.Text
+  reviewedAt     DateTime?
+  expiresAt      DateTime?
+  executedAt     DateTime?
+  executionError String?        @db.Text
+
+  task     AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  reviewer User?     @relation("ApprovalReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([taskId, status])
+}
+
+model Integration {
+  id              String          @id @default(cuid())
+  workspaceId     String
+  type            IntegrationType
+  name            String
+  enabled         Boolean         @default(true)
+  settings        Json?
+  credentialsEnc  String?         @db.Text
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([workspaceId, type, name])
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String?
+  taskId      String?
+  event       String
+  details     Json?
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([taskId, createdAt])
+}

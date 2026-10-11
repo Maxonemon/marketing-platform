@@ -5,14 +5,19 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
-  // Override default ignores of eslint-config-next.
-  globalIgnores([
-    // Default ignores of eslint-config-next:
-    ".next/**",
-    "out/**",
-    "build/**",
-    "next-env.d.ts",
-  ]),
+  {
+    // Hard rules. These are errors, not warnings, so the Stop hook blocks on them.
+    rules: {
+      "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/ban-ts-comment": [
+        "error",
+        { "ts-ignore": true, "ts-nocheck": true, "ts-expect-error": true },
+      ],
+      "@typescript-eslint/no-non-null-assertion": "error",
+      "no-console": ["error", { allow: ["warn", "error"] }],
+    },
+  },
+  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", ".claude/**"]),
 ]);
 
 export default eslintConfig;

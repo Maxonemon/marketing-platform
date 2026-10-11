@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm check)",
+      "Bash(pnpm test *)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm lint)",
+      "Bash(pnpm vitest *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git restore *)"
+    ],
+    "deny": [
+      "Bash(pnpm add *)",
+      "Bash(pnpm install *)",
+      "Bash(pnpm i *)",
+      "Bash(npm install *)",
+      "Bash(npm i *)",
+      "Bash(yarn add *)",
+      "Bash(npx *)",
+      "Bash(git push *)",
+      "Bash(git reset --hard *)",
+      "Bash(rm -rf *)",
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "node .claude/hooks/guard-edit.mjs" }]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{ "type": "command", "command": "node .claude/hooks/check.mjs", "timeout": 300 }]
+      }
+    ]
+  }
+}

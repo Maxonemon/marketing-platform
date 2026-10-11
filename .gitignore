@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# review scratch
+.review/*
+!.review/.gitkeep
+.claude/settings.local.json
