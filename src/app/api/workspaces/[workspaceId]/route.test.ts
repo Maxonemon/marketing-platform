@@ -43,6 +43,17 @@ describe("GET /api/workspaces/[workspaceId]", () => {
     expect(response.status).toBe(404);
   });
 
+  it("rejects the old session cookie with 401 after sign-out", async () => {
+    const owner = await signUp("owner@example.test");
+    const created = await createWorkspace({ userId: owner.userId }, { name: "Acme", slug: "acme" });
+    if (!created.ok) throw new Error("setup failed");
+
+    await auth.api.signOut({ headers: new Headers({ cookie: owner.cookie }) });
+    const response = await requestWorkspace(created.value.id, owner.cookie);
+
+    expect(response.status).toBe(401);
+  });
+
   it("returns the Workspace to its Owner", async () => {
     const owner = await signUp("owner@example.test");
     const created = await createWorkspace({ userId: owner.userId }, { name: "Acme", slug: "acme" });

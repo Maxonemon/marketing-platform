@@ -7,7 +7,8 @@ export interface AuthFailure {
 }
 
 const SERVER_ERROR_STATUS = 500;
-const SERVER_ERROR = "Something went wrong on our side. Try again in a moment.";
+// Also shown when the request never reaches the server (network failure).
+export const SERVER_ERROR = "Something went wrong on our side. Try again in a moment.";
 
 // Only a password problem gets a password message. Every other refused sign-up gets one
 // message, and every refused sign-in another, so the form never reveals which emails exist.
