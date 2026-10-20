@@ -1,8 +1,6 @@
-import { notFound } from "next/navigation";
+import Link from "next/link";
 import { Suspense } from "react";
-import { getWorkspaceBySlug } from "@/lib/app/workspaces";
-import { requireActor } from "@/lib/session";
-import { SignOutButton } from "./sign-out-button";
+import { requireWorkspace } from "./require-workspace";
 
 interface WorkspacePageProps {
   params: Promise<{ slug: string }>;
@@ -10,25 +8,26 @@ interface WorkspacePageProps {
 
 export default function WorkspacePage({ params }: WorkspacePageProps) {
   return (
-    <Suspense fallback={<p className="p-6">Loading…</p>}>
+    <Suspense fallback={<p>Loading…</p>}>
       <WorkspaceHome params={params} />
     </Suspense>
   );
 }
 
 async function WorkspaceHome({ params }: WorkspacePageProps) {
-  const actor = await requireActor();
   const { slug } = await params;
-  const result = await getWorkspaceBySlug(actor, slug);
-  if (!result.ok) notFound();
+  const { workspace } = await requireWorkspace(slug);
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 p-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{result.value.name}</h1>
-        <SignOutButton />
-      </header>
-      <p className="text-zinc-600">Nothing here yet. Brands and content arrive in the next tickets.</p>
-    </main>
+    <>
+      <h1 className="text-2xl font-semibold">{workspace.name}</h1>
+      <p className="text-zinc-500">
+        Start by adding your{" "}
+        <Link href={`/w/${workspace.slug}/brands`} className="underline">
+          Brands
+        </Link>
+        . Requesting content for them comes next.
+      </p>
+    </>
   );
 }
