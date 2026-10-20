@@ -9,7 +9,8 @@ import {
   BRAND_WEBSITE_MAX_LENGTH,
 } from "@/lib/limits";
 import { requireRole, type Actor } from "@/lib/permissions";
-import { appendActivity, type FieldChange } from "./activity-log";
+import { appendActivity, type BrandFieldChange } from "./activity-log";
+import { BRAND_FIELDS, type BrandField } from "./brand-fields";
 import { fail, ok, type Result } from "./result";
 
 export type { Brand };
@@ -40,7 +41,7 @@ const brandSettingsSchema = z.object({
   industry: optionalText(BRAND_INDUSTRY_MAX_LENGTH),
   audience: optionalText(BRAND_AUDIENCE_MAX_LENGTH),
   voice: optionalText(BRAND_VOICE_MAX_LENGTH),
-});
+} satisfies Record<BrandField, z.ZodType>);
 
 export type BrandSettingsInput = z.input<typeof brandSettingsSchema>;
 type BrandSettings = z.output<typeof brandSettingsSchema>;
@@ -111,9 +112,7 @@ export async function updateBrand(
   });
 }
 
-const BRAND_FIELDS = brandSettingsSchema.keyof().options;
-
-function changesBetween(before: BrandSettings, after: BrandSettings): FieldChange[] {
+function changesBetween(before: BrandSettings, after: BrandSettings): BrandFieldChange[] {
   return BRAND_FIELDS.filter((field) => before[field] !== after[field]).map((field) => ({
     field,
     from: before[field],

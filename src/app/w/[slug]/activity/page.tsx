@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Fragment, Suspense } from "react";
-import { ACTIVITY_LOG_PAGE_SIZE, listActivity, type ActivityEntry, type FieldChange } from "@/lib/app/activity-log";
+import { ACTIVITY_LOG_PAGE_SIZE, listActivity, type ActivityEntry, type BrandFieldChange } from "@/lib/app/activity-log";
+import type { BrandField } from "@/lib/app/brand-fields";
 import { requireWorkspace } from "../require-workspace";
 
 interface ActivityLogPageProps {
@@ -77,7 +78,8 @@ function ActivityItem({ entry, workspaceSlug }: ActivityItemProps) {
   );
 }
 
-const FIELD_LABELS: Record<string, string> = {
+// Typed by the Brand fields, so adding a setting without a label fails the build.
+const FIELD_LABELS: Record<BrandField, string> = {
   name: "Name",
   websiteUrl: "Website",
   industry: "Industry",
@@ -86,7 +88,7 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 interface ChangeListProps {
-  changes: FieldChange[];
+  changes: BrandFieldChange[];
 }
 
 function ChangeList({ changes }: ChangeListProps) {
@@ -94,7 +96,7 @@ function ChangeList({ changes }: ChangeListProps) {
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
       {changes.map(({ field, from, to }) => (
         <Fragment key={field}>
-          <dt className="font-medium">{FIELD_LABELS[field] ?? field}</dt>
+          <dt className="font-medium">{FIELD_LABELS[field]}</dt>
           <dd className="wrap-break-word whitespace-pre-wrap">
             <ChangedValue text={from} /> → <ChangedValue text={to} />
           </dd>

@@ -2,13 +2,14 @@ import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { requireRole, type Actor } from "@/lib/permissions";
+import { BRAND_FIELDS } from "./brand-fields";
 import { ok, type Result } from "./result";
 
 // The Activity Log page shows this many of the newest entries. Filters come in ticket 14.
 export const ACTIVITY_LOG_PAGE_SIZE = 100;
 
-const fieldChangeSchema = z.object({
-  field: z.string(),
+const brandFieldChangeSchema = z.object({
+  field: z.enum(BRAND_FIELDS),
   from: z.string().nullable(),
   to: z.string().nullable(),
 });
@@ -17,11 +18,11 @@ const fieldChangeSchema = z.object({
 // details carry only non-secret facts: never credentials, tokens or webhook URLs.
 const activitySchema = z.discriminatedUnion("event", [
   z.object({ event: z.literal("BRAND_CREATED"), details: z.object({ name: z.string() }) }),
-  z.object({ event: z.literal("BRAND_UPDATED"), details: z.object({ changes: z.array(fieldChangeSchema) }) }),
+  z.object({ event: z.literal("BRAND_UPDATED"), details: z.object({ changes: z.array(brandFieldChangeSchema) }) }),
 ]);
 
 export type Activity = z.infer<typeof activitySchema>;
-export type FieldChange = z.infer<typeof fieldChangeSchema>;
+export type BrandFieldChange = z.infer<typeof brandFieldChangeSchema>;
 
 export type NewActivityEntry = Activity & {
   workspaceId: string;
