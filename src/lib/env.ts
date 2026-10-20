@@ -3,13 +3,14 @@ import { z } from "zod";
 // Required env vars, checked lazily and once at startup (src/instrumentation.ts).
 // Errors name the missing or invalid variables, never their values.
 
+// z.url() alone accepts "localhost:3000" (it reads "localhost:" as the scheme).
 const dbEnvSchema = z.object({
-  DATABASE_URL: z.url(),
+  DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
 });
 
 const authEnvSchema = z.object({
   BETTER_AUTH_SECRET: z.string().min(32),
-  BETTER_AUTH_URL: z.url(),
+  BETTER_AUTH_URL: z.url({ protocol: /^https?$/ }),
 });
 
 export type DbEnv = z.infer<typeof dbEnvSchema>;
