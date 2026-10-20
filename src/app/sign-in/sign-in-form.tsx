@@ -3,14 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth-client";
-
-type Mode = "sign-in" | "sign-up";
-
-// One generic message for every failure, so the form never reveals which emails exist.
-const FAILURE_MESSAGE: Record<Mode, string> = {
-  "sign-in": "That email and password don't match an account.",
-  "sign-up": "Couldn't create the account. Use a password of at least 8 characters, or sign in instead.",
-};
+import { authErrorMessage, type AuthMode as Mode } from "./auth-error-message";
 
 export function SignInForm() {
   const router = useRouter();
@@ -31,7 +24,7 @@ export function SignInForm() {
         : await authClient.signUp.email({ email, password, name: String(form.get("name") ?? "") });
     setPending(false);
     if (authError) {
-      setError(FAILURE_MESSAGE[mode]);
+      setError(authErrorMessage(mode, authError));
       return;
     }
     router.replace("/");
