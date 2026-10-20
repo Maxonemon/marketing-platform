@@ -46,6 +46,7 @@ Create `.env.test` for the test suite:
 | Variable | What it is |
 |---|---|
 | `TEST_DATABASE_URL` | A **different** database. The tests refuse to run if it matches `DATABASE_URL`. |
+| `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` | Also needed here (test values are fine): the auth tests load Better Auth, and tests read only `.env.test`. |
 
 Then apply the migrations and start the app:
 
@@ -116,8 +117,8 @@ The repo is set up to be built ticket by ticket with [Claude Code](https://claud
 
 1. `/clear` so the session starts empty. One ticket per session.
 2. Optional: Shift+Tab for plan mode and ask for a plan. Check that it names real files.
-3. `/implement <ticket path>`. It works test-first (`/tdd`), runs `pnpm check`, and runs the read-only `reviewer` agent (plus `security-reviewer` for auth, approvals, execution or integrations) before each commit.
-4. Read the review findings and `git diff --stat`.
+3. `/implement <ticket path>`. It works test-first (`/tdd`) and ends with a two-axis `/code-review` (standards and spec). On top of that, `CLAUDE.md` has Claude run `pnpm check` and the read-only `reviewer` agent (plus `security-reviewer` for auth, approvals, execution or integrations) before each commit.
+4. Read the review findings and `git diff --stat`. You decide which findings to fix, and each commit asks for your approval.
 5. If the session gets long or vague: `/handoff`, then start fresh.
 
 **For a new feature**: `/grill-with-docs` on the idea (decisions land in `GLOSSARY.md` and `docs/adr/`), then `/to-spec`, then `/to-tickets`.
@@ -154,4 +155,4 @@ Marketing skills are left out on purpose: they belong to the app's content agent
 
 - Claude Code runs on a Claude subscription, not an API key.
 - Don't run Claude unattended in loops until the workflow is stable.
-- In the app, every AI call has a max token limit and a retry cap, and token usage is recorded per Task.
+- In the app (once AI calls arrive in tickets 03 and 06), every AI call must have a max token limit and a retry cap, and each Task records its token usage.
