@@ -9,7 +9,7 @@ import {
   BRAND_WEBSITE_MAX_LENGTH,
 } from "@/lib/limits";
 import { requireRole, type Actor } from "@/lib/permissions";
-import { appendActivity } from "./activity-log";
+import { appendActivity, type FieldChange } from "./activity-log";
 import { fail, ok, type Result } from "./result";
 
 export type { Brand };
@@ -85,4 +85,38 @@ export async function getBrand(actor: Actor, workspaceId: string, brandId: strin
   if (!access.ok) return access;
   const brand = await db.brand.findFirst({ where: { id: brandId, workspaceId } });
   return brand ? ok(brand) : fail("NOT_FOUND", BRAND_NOT_FOUND);
+}
+
+// Replaces all settings. Logs a BRAND_UPDATED entry with each changed field's old and
+// new value, in the same transaction; saving unchanged settings writes and logs nothing.
+// Two saves at the same moment can both read the same old values; accepted for now.
+export async function updateBrand(
+  actor: Actor,
+  workspaceId: string,
+  brandId: string,
+  input: BrandSettingsInput,
+): Promise<Result<Brand>> {
+  const access = await requireRole(actor, workspaceId, "MEMBER");
+  if (!access.ok) return access;
+  const settings = parseSettings(input);
+  if (!settings.ok) return settings;
+  return db.$transaction(async (tx) => {
+    const before = await tx.brand.findFirst({ where: { id: brandId, workspaceId } });
+    if (!before) return fail("NOT_FOUND", BRAND_NOT_FOUND);
+    const changes = changesBetween(before, settings.value);
+    if (changes.length === 0) return ok(before);
+    const brand = await tx.brand.update({ where: { id: brandId }, data: settings.value });
+    await appendActivity(tx, { workspaceId, actor, brandId, event: "BRAND_UPDATED", details: { changes } });
+    return ok(brand);
+  });
+}
+
+const BRAND_FIELDS = brandSettingsSchema.keyof().options;
+
+function changesBetween(before: BrandSettings, after: BrandSettings): FieldChange[] {
+  return BRAND_FIELDS.filter((field) => before[field] !== after[field]).map((field) => ({
+    field,
+    from: before[field],
+    to: after[field],
+  }));
 }
