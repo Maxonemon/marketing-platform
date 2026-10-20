@@ -9,3 +9,9 @@ export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
+
+export const BRAND_NAME_MAX_LENGTH = 80;
+export const BRAND_WEBSITE_MAX_LENGTH = 2048;
+export const BRAND_INDUSTRY_MAX_LENGTH = 80;
+export const BRAND_AUDIENCE_MAX_LENGTH = 1000;
+export const BRAND_VOICE_MAX_LENGTH = 2000;

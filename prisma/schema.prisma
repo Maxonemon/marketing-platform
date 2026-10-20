@@ -29,6 +29,7 @@ model User {
   sessions    Session[]
   accounts    Account[]
   memberships WorkspaceMember[]
+  activity    ActivityLogEntry[]
 }
 
 model Session {
@@ -84,7 +85,9 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members WorkspaceMember[]
+  members  WorkspaceMember[]
+  brands   Brand[]
+  activity ActivityLogEntry[]
 }
 
 model WorkspaceMember {
@@ -99,4 +102,46 @@ model WorkspaceMember {
 
   @@unique([workspaceId, userId])
   @@index([userId])
+}
+
+model Brand {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  websiteUrl  String?
+  industry    String?
+  audience    String?
+  voice       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  activity  ActivityLogEntry[]
+
+  @@index([workspaceId])
+}
+
+enum ActivityEvent {
+  BRAND_CREATED
+  BRAND_UPDATED
+}
+
+// Append-only: src/lib/app/activity-log.ts only ever inserts entries. NoAction keeps a
+// User or Brand with entries from being deleted, so no entry is ever rewritten; only
+// deleting the whole Workspace removes its log. The id only grows, which gives a
+// strict newest-first order even when two entries share a timestamp.
+model ActivityLogEntry {
+  id          Int           @id @default(autoincrement())
+  workspaceId String
+  actorId     String
+  event       ActivityEvent
+  brandId     String?
+  details     Json
+  createdAt   DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor     User      @relation(fields: [actorId], references: [id], onDelete: NoAction)
+  brand     Brand?    @relation(fields: [brandId], references: [id], onDelete: NoAction)
+
+  @@index([workspaceId, id])
 }
