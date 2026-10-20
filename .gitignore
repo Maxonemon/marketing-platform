@@ -44,3 +44,6 @@ next-env.d.ts
 .review/*
 !.review/.gitkeep
 .claude/settings.local.json
+
+# prisma generated client
+/src/generated/
