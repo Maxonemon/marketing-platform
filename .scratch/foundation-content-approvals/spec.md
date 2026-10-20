@@ -18,7 +18,7 @@ The first deliverable is a tracer bullet that runs end to end, thin but real: cr
 
 ### Sign-in and Workspace
 
-1. As a new user, I want to sign in with my existing account through a single sign-on provider, so that I don't need another password.
+1. As a new user, I want to sign up and sign in with my email and a password, so that I can start without setting up an external sign-in provider. (Changed from single sign-on at ticket 01, see ADR-0002.)
 2. As a first-time user with no Workspace, I want to create a Workspace and become its Owner, so that I can start setting up my business or agency.
 3. As a user, I want to be sent to sign-in when I open any app page while signed out, so that workspace data is never shown to anonymous visitors.
 4. As a user who belongs to several Workspaces, I want to switch between them, so that I can work for different businesses without signing out.

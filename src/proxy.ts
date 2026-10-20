@@ -1,5 +1,6 @@
 import { getSessionCookie } from "better-auth/cookies";
 import { NextResponse, type NextRequest } from "next/server";
+import { unauthenticatedResponse } from "@/lib/app/http";
 
 // Optimistic check only: no session cookie → sign-in page (or 401 for API routes).
 // The real check is getActorFromHeaders/requireActor plus the permissions module,
@@ -7,9 +8,7 @@ import { NextResponse, type NextRequest } from "next/server";
 export function proxy(request: NextRequest): NextResponse {
   if (getSessionCookie(request)) return NextResponse.next();
 
-  if (request.nextUrl.pathname.startsWith("/api/")) {
-    return NextResponse.json({ error: { code: "UNAUTHENTICATED", message: "Sign in to continue." } }, { status: 401 });
-  }
+  if (request.nextUrl.pathname.startsWith("/api/")) return unauthenticatedResponse();
   return NextResponse.redirect(new URL("/sign-in", request.url));
 }
 

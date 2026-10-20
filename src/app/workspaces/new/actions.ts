@@ -1,12 +1,13 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import type { FieldErrors } from "@/lib/app/result";
 import { createWorkspace } from "@/lib/app/workspaces";
 import { requireActor } from "@/lib/session";
 
 export interface CreateWorkspaceFormState {
   message?: string;
-  fieldErrors?: Record<string, string[]>;
+  fieldErrors?: FieldErrors;
 }
 
 // Thin: parse the form, call the application-layer operation, map the result.

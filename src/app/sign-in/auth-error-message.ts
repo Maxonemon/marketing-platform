@@ -1,3 +1,5 @@
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "@/lib/limits";
+
 export type AuthMode = "sign-in" | "sign-up";
 
 // The parts of a Better Auth client error the form needs.
@@ -13,8 +15,8 @@ export const SERVER_ERROR = "Something went wrong on our side. Try again in a mo
 // Only a password problem gets a password message. Every other refused sign-up gets one
 // message, and every refused sign-in another, so the form never reveals which emails exist.
 const PASSWORD_MESSAGES: Record<string, string> = {
-  PASSWORD_TOO_SHORT: "Use a password of at least 8 characters.",
-  PASSWORD_TOO_LONG: "Use a password of at most 128 characters.",
+  PASSWORD_TOO_SHORT: `Use a password of at least ${PASSWORD_MIN_LENGTH} characters.`,
+  PASSWORD_TOO_LONG: `Use a password of at most ${PASSWORD_MAX_LENGTH} characters.`,
 };
 
 const REFUSED: Record<AuthMode, string> = {

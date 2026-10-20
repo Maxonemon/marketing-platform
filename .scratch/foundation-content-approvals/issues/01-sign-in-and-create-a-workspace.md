@@ -12,7 +12,7 @@ Spec: [../spec.md](../spec.md) (stories 1–3, 9–10).
 
 **Status:** done (2026-10-20). Verified by `pnpm check`, `next build` and a browser run of sign-up → create Workspace → sign out.
 
-**Needs dependency approval first:** Prisma + Neon driver adapter, Better Auth (its Prisma adapter is built in). Auth.js + Google was replaced at implementation, see ADR-0002. Read the current Prisma docs; the schema draft predates Prisma 7.
+**Needs dependency approval first:** Prisma with the pg driver adapter (works with Neon), Better Auth (its Prisma adapter is built in). Auth.js + Google was replaced at implementation, see ADR-0002. Read the current Prisma docs; the schema draft predates Prisma 7.
 
 - [x] Signing up or in with email + password creates a User and a database session; signing out ends it
 - [x] A signed-in user with no Workspace is asked to create one (name, slug) and becomes its Owner
