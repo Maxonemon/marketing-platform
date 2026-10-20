@@ -36,7 +36,7 @@ Layer	Choice	Purpose
 Frontend	Next.js App Router + TypeScript	Dashboard and API endpoints
 UI	Tailwind CSS + shadcn/ui	Fast, consistent interface
 Database	Neon PostgreSQL + Prisma	Persistent application data
-Authentication	Auth.js	Sign-in and user sessions
+Authentication	Better Auth	Sign-in and user sessions (ADR-0002)
 AI	One model API initially	Research analysis, writing and structured outputs
 Workflows	Inngest	Scheduled jobs, retries, background tasks
 Validation	Zod	Validate AI outputs and API inputs

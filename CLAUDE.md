@@ -6,7 +6,7 @@ Internal AI marketing tool: agents draft content and research; a human approves 
 Full plan: `docs/plan/marketing-platform.md`. Schema draft: `docs/plan/schema-draft.prisma`.
 
 ## Stack
-Next.js App Router · TypeScript strict · Zod · Vitest · Tailwind. Planned (added by tickets): Prisma + Neon, Auth.js, Inngest.
+Next.js App Router · TypeScript strict · Zod · Vitest · Tailwind. Added: Prisma 7 (pg adapter) on Neon, Better Auth (email + password). Planned: Inngest.
 
 ## Commands
 - `pnpm check` = typecheck + lint + tests. Run it before you say a ticket is done (a hook also runs it).

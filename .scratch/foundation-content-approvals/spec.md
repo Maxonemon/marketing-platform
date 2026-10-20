@@ -126,7 +126,7 @@ The first deliverable is a tracer bullet that runs end to end, thin but real: cr
 
 ### Stack additions (each new dependency needs your approval at its ticket)
 - Prisma with Neon PostgreSQL. The schema draft predates Prisma 7, so the database ticket must check the current Prisma setup (config file, generator, driver adapter) before writing the schema.
-- Auth.js with database sessions and one OAuth sign-in provider (Google is the default proposal; confirm at the auth ticket). No email-link sign-in, so no email provider is needed in these phases.
+- Better Auth with database sessions and email + password sign-in (decided at ticket 01, see `docs/adr/0002-better-auth-email-password.md`). No email-link sign-in, verification or reset emails, so no email provider is needed in these phases.
 - Inngest for background functions: content Tasks, Executions and the Approval expiry sweep.
 - One AI provider SDK behind the provider interface. The default proposal is Anthropic, with a cost-effective model for routine content; confirm at the AI ticket.
 - Slack uses a plain HTTPS POST to an incoming webhook. No Slack SDK.
@@ -211,6 +211,6 @@ The first deliverable is a tracer bullet that runs end to end, thin but real: cr
 
 - `/setup-matt-pocock-skills` has not been run. This spec follows the README's instruction to use the Local markdown tracker in `.scratch/` with the default triage labels.
 - The first ticket from `/to-tickets` should be the tracer bullet. It needs the database, auth, permissions, application layer, fake AI provider, approval and execution services and the mock Channel at minimum depth. Later tickets add depth (real AI provider, three Variants with rule checks, Slack, expiry, supersede, UI polish).
-- Several tickets need dependency approval before they can start: Prisma/Neon adapter, Auth.js, Inngest, the AI SDK. The test database also needs a `DATABASE_URL` for tests.
+- Several tickets need dependency approval before they can start: Prisma/Neon adapter, Better Auth, Inngest, the AI SDK. The test database also needs a `DATABASE_URL` for tests.
 - Tickets touching auth, approvals, execution or Integrations must also go through the `security-reviewer` agent, as set out in CLAUDE.md.
 - Retention limits on the Activity Log and Snapshots apply from Phase 3 and are not addressed here.
