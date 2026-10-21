@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, type ReactNode } from "react";
+import { useActionState } from "react";
 import {
   BRAND_AUDIENCE_MAX_LENGTH,
   BRAND_INDUSTRY_MAX_LENGTH,
@@ -8,10 +8,10 @@ import {
   BRAND_VOICE_MAX_LENGTH,
   BRAND_WEBSITE_MAX_LENGTH,
 } from "@/lib/limits";
+import { Field, INPUT_CLASS } from "../form-field";
 import type { BrandFormAction, BrandFormState, BrandFormValues } from "./actions";
 
 const INITIAL_STATE: BrandFormState = {};
-const INPUT_CLASS = "rounded border px-2 py-1.5";
 
 interface BrandFormProps {
   action: BrandFormAction;
@@ -60,21 +60,5 @@ export function BrandForm({ action, initialValues = {}, submitLabel }: BrandForm
         {submitLabel}
       </button>
     </form>
-  );
-}
-
-interface FieldProps {
-  label: string;
-  errors?: string[];
-  children: ReactNode;
-}
-
-function Field({ label, errors, children }: FieldProps) {
-  return (
-    <label className="flex flex-col gap-1 text-sm">
-      {label}
-      {children}
-      {errors?.length ? <span role="alert" className="text-red-600">{errors.join(" ")}</span> : null}
-    </label>
   );
 }

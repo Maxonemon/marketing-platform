@@ -4,6 +4,7 @@ import { Fragment, Suspense } from "react";
 import { ACTIVITY_LOG_PAGE_SIZE, listActivity, type ActivityEntry, type BrandFieldChange } from "@/lib/app/activity-log";
 import type { BrandField } from "@/lib/app/brand-fields";
 import { requireWorkspace } from "../require-workspace";
+import { Timestamp } from "../timestamp";
 
 interface ActivityLogPageProps {
   params: Promise<{ slug: string }>;
@@ -52,9 +53,6 @@ const EVENT_TEXT: Record<ActivityEntry["event"], string> = {
   TASK_FAILED: "recorded a failed content Task for",
 };
 
-// Server time zones differ, so times are always shown in UTC.
-const TIMESTAMP = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
-
 interface ActivityItemProps {
   entry: ActivityEntry;
   workspaceSlug: string;
@@ -71,11 +69,18 @@ function ActivityItem({ entry, workspaceSlug }: ActivityItemProps) {
           </Link>
         )}
       </p>
-      <time dateTime={entry.createdAt.toISOString()} className="text-zinc-500">
-        {TIMESTAMP.format(entry.createdAt)} UTC
-      </time>
+      <Timestamp date={entry.createdAt} className="text-zinc-500" />
       {entry.event === "BRAND_UPDATED" && <ChangeList changes={entry.details.changes} />}
-      {entry.event === "TASK_FAILED" && <p className="wrap-break-word">{entry.details.error}</p>}
+      {entry.event === "TASK_FAILED" && (
+        <p className="wrap-break-word">
+          {entry.details.error}{" "}
+          {entry.taskId && (
+            <Link href={`/w/${workspaceSlug}/tasks/${entry.taskId}`} className="underline">
+              View the Task
+            </Link>
+          )}
+        </p>
+      )}
     </li>
   );
 }

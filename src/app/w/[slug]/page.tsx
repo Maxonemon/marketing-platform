@@ -26,7 +26,11 @@ async function WorkspaceHome({ params }: WorkspacePageProps) {
         <Link href={`/w/${workspace.slug}/brands`} className="underline">
           Brands
         </Link>
-        . Requesting content for them comes next.
+        , then request content from a Brand&apos;s page and follow it in{" "}
+        <Link href={`/w/${workspace.slug}/tasks`} className="underline">
+          Tasks
+        </Link>
+        .
       </p>
     </>
   );

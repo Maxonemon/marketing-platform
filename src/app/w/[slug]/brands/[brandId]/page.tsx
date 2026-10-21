@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { getBrand } from "@/lib/app/brands";
 import { requireWorkspace } from "../../require-workspace";
+import { requestContentAction } from "../../tasks/actions";
+import { RequestContentForm } from "../../tasks/request-content-form";
 import { updateBrandAction } from "../actions";
 import { BrandForm } from "../brand-form";
 
@@ -41,6 +43,11 @@ async function BrandSettings({ params }: BrandSettingsPageProps) {
           </a>
         )}
       </div>
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Request content</h2>
+        <p className="text-sm text-zinc-500">The content agent writes it in the background, in this Brand&apos;s voice. Follow it in Tasks.</p>
+        <RequestContentForm action={requestContentAction.bind(null, workspace.id, workspace.slug, id)} />
+      </section>
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Settings</h2>
         <BrandForm

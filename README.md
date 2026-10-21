@@ -12,16 +12,16 @@ Built in small tickets, tracked as markdown in [`.scratch/foundation-content-app
 |---|---|---|
 | 01 | Done | Sign up / sign in with email and password, create a Workspace, sign out |
 | 02 | Done | Create, list and edit Brands; an append-only Activity Log any member can browse |
-| 03 | Next | Request content for a Brand → background Task → Review (needs Inngest) |
+| 03 | Done | Request content for a Brand → background Task (fake AI) → Task history → Review |
 | 04–14 | Planned | Approval and mock execution, real AI, Brand rules, expiry, members, Slack, dashboard |
 
 The full feature spec is [`spec.md`](.scratch/foundation-content-approvals/spec.md); the long-term plan is [`docs/plan/marketing-platform.md`](docs/plan/marketing-platform.md).
 
 ## Stack
 
-Next.js 16 (App Router, Cache Components) · React 19 · TypeScript (strict) · Tailwind CSS 4 · Zod 4 · Prisma 7 with the `pg` driver adapter on Neon PostgreSQL · Better Auth (email + password, database sessions) · Vitest.
+Next.js 16 (App Router, Cache Components) · React 19 · TypeScript (strict) · Tailwind CSS 4 · Zod 4 · Prisma 7 with the `pg` driver adapter on Neon PostgreSQL · Better Auth (email + password, database sessions) · Inngest 4 (background jobs) · Vitest.
 
-Planned: Inngest for background jobs, one AI provider SDK.
+Planned: one AI provider SDK (until then a fake provider writes placeholder content).
 
 > **This is not the Next.js in most tutorials.** Version 16 changed APIs and conventions. Read the bundled docs in `node_modules/next/dist/docs/` before writing Next.js code.
 
@@ -40,6 +40,7 @@ Create `.env` for the app:
 | `DATABASE_URL` | Development database, `postgresql://…` |
 | `BETTER_AUTH_SECRET` | Random string, at least 32 characters, e.g. from `openssl rand -base64 32` |
 | `BETTER_AUTH_URL` | Where the app runs, `http://localhost:3000` in development |
+| `INNGEST_DEV` | `1` in development: background jobs go to the local Inngest Dev Server. Elsewhere leave it unset and set `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` from your Inngest account. |
 
 Create `.env.test` for the test suite:
 
@@ -55,7 +56,13 @@ pnpm db:migrate:deploy   # apply prisma/migrations to DATABASE_URL
 pnpm dev                 # http://localhost:3000
 ```
 
-Sign up, create a Workspace, then add Brands and look at the Activity Log from the Workspace menu.
+Content requests run as background jobs, so also start the Inngest Dev Server in a second terminal (UI at http://localhost:8288):
+
+```sh
+npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
+```
+
+Sign up, create a Workspace, add Brands, request content from a Brand's page and follow it in Tasks; the Activity Log is in the Workspace menu.
 
 A missing or invalid environment variable stops the server at startup with the variable's name (never its value).
 
@@ -77,6 +84,8 @@ Tests run against the real test database: migrations are applied once per run an
 - **A request or test fails with `ETIMEDOUT` or an empty Prisma error.** Neon suspends idle databases, and the first connection while it wakes can time out. Retry; if it keeps happening, check the database in the Neon console.
 - **`TEST_DATABASE_URL is not set` or "points at the same database".** Add a separate test database to `.env.test` (see above).
 - **Port 3000 is already in use.** Another `next dev` or `next start` is still running; stop it first.
+- **`pnpm dev` stops with "Missing or invalid environment variables: INNGEST_EVENT_KEY, INNGEST_SIGNING_KEY".** Add `INNGEST_DEV=1` to `.env` (see above).
+- **A Task stays Queued.** The Inngest Dev Server doesn't know the app: its Apps page (http://localhost:8288) shows it unreachable or missing. With `pnpm dev` running, `curl -X PUT http://localhost:3000/api/inngest` registers it, then request the content again; events sent before that are not replayed.
 
 ## How the code is organised
 
@@ -91,6 +100,8 @@ src/
   lib/permissions.ts   "Is this user a member of this Workspace with at least role X?"
   lib/session.ts       The only way to get the acting user: from a verified session.
   lib/limits.ts        Input limits shared by server validation and forms.
+  lib/ai/              The AI provider interface (and its fake) and the agents.
+  inngest/             Inngest client, events and background functions.
   proxy.ts             Sends signed-out visitors to /sign-in (optimistic check only).
   test/                Test database harness and fixtures.
 prisma/                Schema and migrations.
