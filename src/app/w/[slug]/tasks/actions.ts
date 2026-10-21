@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { sendContentRequested } from "@/inngest/client";
 import { requestContent, type ContentRequestInput } from "@/lib/app/content-requests";
 import type { FieldErrors } from "@/lib/app/result";
+import { submitReview } from "@/lib/app/reviews";
 import { requireActor } from "@/lib/session";
 
 export interface RequestContentFormState {
@@ -35,4 +36,30 @@ export async function requestContentAction(
   const result = await requestContent(actor, workspaceId, brandId, values, sendContentRequested);
   if (!result.ok) return { message: result.error.message, fieldErrors: result.error.fieldErrors, values };
   redirect(`/w/${workspaceSlug}/tasks/${result.value.id}`);
+}
+
+export interface SubmitReviewFormState {
+  message?: string;
+}
+
+export type SubmitReviewFormAction = (
+  previous: SubmitReviewFormState,
+  formData: FormData,
+) => Promise<SubmitReviewFormState>;
+
+// Submits the picked Variant and opens its new Approval. Bound ids are trusted only as
+// far as submitReview checks them (membership, a Task scoped to the Workspace and still
+// IN_REVIEW, a Variant of that Task).
+export async function submitReviewAction(
+  workspaceId: string,
+  workspaceSlug: string,
+  taskId: string,
+  _previous: SubmitReviewFormState,
+  formData: FormData,
+): Promise<SubmitReviewFormState> {
+  const actor = await requireActor();
+  const contentAssetId = String(formData.get("contentAssetId") ?? "");
+  const result = await submitReview(actor, workspaceId, taskId, { contentAssetId });
+  if (!result.ok) return { message: result.error.message };
+  redirect(`/w/${workspaceSlug}/approvals/${result.value.id}`);
 }

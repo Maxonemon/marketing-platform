@@ -1,5 +1,6 @@
 import { eventType, Inngest } from "inngest";
 import { z } from "zod";
+import type { StartExecution } from "@/lib/app/approvals";
 import type { StartTask } from "@/lib/app/content-requests";
 
 // Dev mode (INNGEST_DEV=1) talks to the local Inngest Dev Server; otherwise the client
@@ -13,4 +14,14 @@ export const contentRequested = eventType("app/content.requested", {
 
 export const sendContentRequested: StartTask = async (taskId) => {
   await inngest.send(contentRequested.create({ taskId }));
+};
+
+// An Approver approved a Proposed Action: execute it in the background. The execution
+// service re-checks the Approval itself, so this event alone can't execute anything.
+export const approvalApproved = eventType("app/approval.approved", {
+  schema: z.object({ approvalId: z.string().min(1) }),
+});
+
+export const sendApprovalApproved: StartExecution = async (approvalId) => {
+  await inngest.send(approvalApproved.create({ approvalId }));
 };

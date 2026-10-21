@@ -56,7 +56,7 @@ pnpm db:migrate:deploy   # apply prisma/migrations to DATABASE_URL
 pnpm dev                 # http://localhost:3000
 ```
 
-Content requests run as background jobs, so also start the Inngest Dev Server in a second terminal (UI at http://localhost:8288):
+Content requests and Executions run as background jobs, so also start the Inngest Dev Server in a second terminal (UI at http://localhost:8288):
 
 ```sh
 npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
