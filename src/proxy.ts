@@ -13,8 +13,9 @@ export function proxy(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  // Everything except: the sign-in page, Better Auth's endpoints and Next's assets
+  // Everything except: the sign-in page, Better Auth's endpoints, the Inngest endpoint
+  // (called without a session; the Inngest SDK verifies its signature) and Next's assets
   // (whole path segments only, so /sign-in-later or /api/authors still run the
   // proxy), and top-level public images such as /next.svg.
-  matcher: ["/((?!(?:sign-in|api/auth|_next/static|_next/image)(?:/|$))(?![^/]*\\.(?:svg|png|jpg|jpeg|ico)$).*)"],
+  matcher: ["/((?!(?:sign-in|api/auth|api/inngest|_next/static|_next/image)(?:/|$))(?![^/]*\\.(?:svg|png|jpg|jpeg|ico)$).*)"],
 };

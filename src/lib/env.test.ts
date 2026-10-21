@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { authEnv, dbEnv } from "./env";
+import { authEnv, dbEnv, inngestEnv } from "./env";
 
 const SECRET = "s".repeat(32);
 
@@ -35,5 +35,25 @@ describe("env checks", () => {
     vi.stubEnv("DATABASE_URL", "mysql://user:pw@host/db");
 
     expect(() => dbEnv()).toThrow("Missing or invalid environment variables: DATABASE_URL");
+  });
+
+  it("requires both Inngest keys outside dev mode, and none in dev mode", () => {
+    vi.stubEnv("INNGEST_EVENT_KEY", "");
+    vi.stubEnv("INNGEST_SIGNING_KEY", "");
+
+    expect(() => inngestEnv("cloud")).toThrow(/^Missing or invalid environment variables: INNGEST_EVENT_KEY, INNGEST_SIGNING_KEY$/);
+    expect(() => inngestEnv("dev")).not.toThrow();
+
+    vi.stubEnv("INNGEST_EVENT_KEY", "event-key");
+    vi.stubEnv("INNGEST_SIGNING_KEY", "signkey-prod-123");
+
+    expect(() => inngestEnv("cloud")).not.toThrow();
+  });
+
+  // Dev mode turns off the signature check on /api/inngest.
+  it("refuses Inngest dev mode in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    expect(() => inngestEnv("dev")).toThrow("Missing or invalid environment variables: INNGEST_DEV");
   });
 });

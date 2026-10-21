@@ -6,14 +6,24 @@ import { config, proxy } from "./proxy";
 const SESSION_COOKIE = "better-auth.session_token=some-session";
 
 describe("proxy matcher", () => {
-  it.each(["/", "/w/acme", "/workspaces/new", "/api/workspaces/abc", "/sign-in-later", "/api/authors", "/api/workspaces/abc.png"])(
+  it.each([
+    "/",
+    "/w/acme",
+    "/workspaces/new",
+    "/api/workspaces/abc",
+    "/sign-in-later",
+    "/api/authors",
+    "/api/inngestion",
+    "/api/workspaces/abc.png",
+  ])(
     "runs on app page or route %s",
     (url) => {
       expect(unstable_doesMiddlewareMatch({ config, url })).toBe(true);
     },
   );
 
-  it.each(["/sign-in", "/api/auth/sign-in/email", "/_next/static/chunks/app.js", "/_next/image", "/favicon.ico", "/next.svg"])(
+  // Inngest calls /api/inngest without a session; the SDK checks its request signature.
+  it.each(["/sign-in", "/api/auth/sign-in/email", "/api/inngest", "/_next/static/chunks/app.js", "/_next/image", "/favicon.ico", "/next.svg"])(
     "skips public path %s",
     (url) => {
       expect(unstable_doesMiddlewareMatch({ config, url })).toBe(false);

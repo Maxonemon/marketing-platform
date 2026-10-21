@@ -13,6 +13,14 @@ const authEnvSchema = z.object({
   BETTER_AUTH_URL: z.url({ protocol: /^https?$/ }),
 });
 
+// The Inngest SDK reads these itself. In dev mode (INNGEST_DEV=1, with the local Dev
+// Server) it needs neither; otherwise sending events needs the event key and serving
+// functions the signing key.
+const inngestCloudEnvSchema = z.object({
+  INNGEST_EVENT_KEY: z.string().min(1),
+  INNGEST_SIGNING_KEY: z.string().min(1),
+});
+
 export type DbEnv = z.infer<typeof dbEnvSchema>;
 export type AuthEnv = z.infer<typeof authEnvSchema>;
 
@@ -29,4 +37,14 @@ export function dbEnv(): DbEnv {
 
 export function authEnv(): AuthEnv {
   return parseEnv(authEnvSchema);
+}
+
+// `mode` is the Inngest client's own reading of INNGEST_DEV, so this check and the SDK
+// agree. Dev mode skips request signature checks, so production must never run in it.
+export function inngestEnv(mode: "dev" | "cloud"): void {
+  if (mode === "cloud") {
+    parseEnv(inngestCloudEnvSchema);
+  } else if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing or invalid environment variables: INNGEST_DEV");
+  }
 }
