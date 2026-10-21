@@ -19,6 +19,7 @@ const brandFieldChangeSchema = z.object({
 const activitySchema = z.discriminatedUnion("event", [
   z.object({ event: z.literal("BRAND_CREATED"), details: z.object({ name: z.string() }) }),
   z.object({ event: z.literal("BRAND_UPDATED"), details: z.object({ changes: z.array(brandFieldChangeSchema) }) }),
+  z.object({ event: z.literal("TASK_FAILED"), details: z.object({ error: z.string() }) }),
 ]);
 
 export type Activity = z.infer<typeof activitySchema>;
@@ -26,24 +27,29 @@ export type BrandFieldChange = z.infer<typeof brandFieldChangeSchema>;
 
 export type NewActivityEntry = Activity & {
   workspaceId: string;
-  actor: Actor;
+  // "system" when no person acted, e.g. a background Task failed.
+  actor: Actor | "system";
   brandId: string;
+  taskId?: string;
 };
 
 export type ActivityEntry = Activity & {
   id: number;
-  actorName: string;
+  // null when the system acted.
+  actorName: string | null;
   brand: { id: string; name: string } | null;
+  taskId: string | null;
   createdAt: Date;
 };
 
 // The only write to the Activity Log, which is append-only: no code updates or deletes
 // an entry. It takes the caller's transaction, so an entry commits with the change it records.
 // It checks nothing itself: only application-layer operations that already passed
-// requireRole call it.
+// requireRole, and background functions acting for one, call it.
 export async function appendActivity(tx: Prisma.TransactionClient, entry: NewActivityEntry): Promise<void> {
-  const { workspaceId, actor, brandId, event, details } = entry;
-  await tx.activityLogEntry.create({ data: { workspaceId, actorId: actor.userId, brandId, event, details } });
+  const { workspaceId, actor, brandId, taskId, event, details } = entry;
+  const actorId = actor === "system" ? null : actor.userId;
+  await tx.activityLogEntry.create({ data: { workspaceId, actorId, brandId, taskId, event, details } });
 }
 
 // Newest first. Only members of the Workspace can read its log.
@@ -60,8 +66,9 @@ export async function listActivity(actor: Actor, workspaceId: string): Promise<R
     rows.map((row) => ({
       ...activitySchema.parse({ event: row.event, details: row.details }),
       id: row.id,
-      actorName: row.actor.name,
+      actorName: row.actor?.name ?? null,
       brand: row.brand,
+      taskId: row.taskId,
       createdAt: row.createdAt,
     })),
   );

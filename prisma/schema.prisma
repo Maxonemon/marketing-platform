@@ -26,10 +26,11 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  sessions    Session[]
-  accounts    Account[]
-  memberships WorkspaceMember[]
-  activity    ActivityLogEntry[]
+  sessions       Session[]
+  accounts       Account[]
+  memberships    WorkspaceMember[]
+  activity       ActivityLogEntry[]
+  requestedTasks Task[]
 }
 
 model Session {
@@ -87,6 +88,7 @@ model Workspace {
 
   members  WorkspaceMember[]
   brands   Brand[]
+  tasks    Task[]
   activity ActivityLogEntry[]
 }
 
@@ -116,32 +118,90 @@ model Brand {
   updatedAt   DateTime @updatedAt
 
   workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks     Task[]
   activity  ActivityLogEntry[]
 
   @@index([workspaceId])
 }
 
+enum TaskType {
+  CONTENT_GENERATION
+}
+
+// A Task becomes COMPLETED when its Review is submitted or discarded (ticket 04).
+enum TaskStatus {
+  QUEUED
+  RUNNING
+  IN_REVIEW
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// One run of one agent. `input` holds what was asked for; src/lib/app/tasks.ts parses
+// it. startedAt/finishedAt bound the agent's run, not the Review.
+model Task {
+  id            String     @id @default(cuid())
+  workspaceId   String
+  brandId       String
+  requestedById String
+  type          TaskType
+  status        TaskStatus @default(QUEUED)
+  input         Json
+  error         String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  brand         Brand              @relation(fields: [brandId], references: [id], onDelete: NoAction)
+  requestedBy   User               @relation(fields: [requestedById], references: [id], onDelete: NoAction)
+  contentAssets ContentAsset[]
+  activity      ActivityLogEntry[]
+
+  @@index([workspaceId, createdAt])
+}
+
+// One Variant written by a content Task: an editable draft, never approved directly.
+model ContentAsset {
+  id        String   @id @default(cuid())
+  taskId    String
+  variant   Int
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, variant])
+}
+
 enum ActivityEvent {
   BRAND_CREATED
   BRAND_UPDATED
+  TASK_FAILED
 }
 
 // Append-only: src/lib/app/activity-log.ts only ever inserts entries. NoAction keeps a
-// User or Brand with entries from being deleted, so no entry is ever rewritten; only
-// deleting the whole Workspace removes its log. The id only grows, which gives a
-// strict newest-first order even when two entries share a timestamp.
+// User, Brand or Task with entries from being deleted, so no entry is ever rewritten;
+// only deleting the whole Workspace removes its log. The id only grows, which gives a
+// strict newest-first order even when two entries share a timestamp. A null actorId
+// means the system acted, e.g. a background Task failed.
 model ActivityLogEntry {
   id          Int           @id @default(autoincrement())
   workspaceId String
-  actorId     String
+  actorId     String?
   event       ActivityEvent
   brandId     String?
+  taskId      String?
   details     Json
   createdAt   DateTime      @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  actor     User      @relation(fields: [actorId], references: [id], onDelete: NoAction)
+  actor     User?     @relation(fields: [actorId], references: [id], onDelete: NoAction)
   brand     Brand?    @relation(fields: [brandId], references: [id], onDelete: NoAction)
+  task      Task?     @relation(fields: [taskId], references: [id], onDelete: NoAction)
 
   @@index([workspaceId, id])
 }

@@ -49,6 +49,7 @@ async function ActivityLog({ params }: ActivityLogPageProps) {
 const EVENT_TEXT: Record<ActivityEntry["event"], string> = {
   BRAND_CREATED: "created the Brand",
   BRAND_UPDATED: "changed the settings of",
+  TASK_FAILED: "recorded a failed content Task for",
 };
 
 // Server time zones differ, so times are always shown in UTC.
@@ -63,7 +64,7 @@ function ActivityItem({ entry, workspaceSlug }: ActivityItemProps) {
   return (
     <li className="flex flex-col gap-1 py-3 text-sm">
       <p>
-        <span className="font-medium">{entry.actorName}</span> {EVENT_TEXT[entry.event]}{" "}
+        <span className="font-medium">{entry.actorName ?? "System"}</span> {EVENT_TEXT[entry.event]}{" "}
         {entry.brand && (
           <Link href={`/w/${workspaceSlug}/brands/${entry.brand.id}`} className="underline">
             {entry.brand.name}
@@ -74,6 +75,7 @@ function ActivityItem({ entry, workspaceSlug }: ActivityItemProps) {
         {TIMESTAMP.format(entry.createdAt)} UTC
       </time>
       {entry.event === "BRAND_UPDATED" && <ChangeList changes={entry.details.changes} />}
+      {entry.event === "TASK_FAILED" && <p className="wrap-break-word">{entry.details.error}</p>}
     </li>
   );
 }
