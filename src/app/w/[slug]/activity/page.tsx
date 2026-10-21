@@ -51,6 +51,9 @@ const EVENT_TEXT: Record<ActivityEntry["event"], string> = {
   BRAND_CREATED: "created the Brand",
   BRAND_UPDATED: "changed the settings of",
   TASK_FAILED: "recorded a failed content Task for",
+  PROPOSED_ACTION_SUBMITTED: "submitted content for approval for",
+  APPROVAL_APPROVED: "approved a Proposed Action for",
+  EXECUTION_SUCCEEDED: "executed an approved Proposed Action for",
 };
 
 interface ActivityItemProps {
@@ -70,6 +73,11 @@ function ActivityItem({ entry, workspaceSlug }: ActivityItemProps) {
         )}
       </p>
       <Timestamp date={entry.createdAt} className="text-zinc-500" />
+      {entry.approvalId && (
+        <Link href={`/w/${workspaceSlug}/approvals/${entry.approvalId}`} className="underline">
+          View the Approval
+        </Link>
+      )}
       {entry.event === "BRAND_UPDATED" && <ChangeList changes={entry.details.changes} />}
       {entry.event === "TASK_FAILED" && (
         <p className="wrap-break-word">

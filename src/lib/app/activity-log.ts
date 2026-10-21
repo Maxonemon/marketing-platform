@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
+import { CHANNELS } from "@/lib/content-options";
 import { db } from "@/lib/db";
 import { requireRole, type Actor } from "@/lib/permissions";
 import { BRAND_FIELDS } from "./brand-fields";
@@ -20,6 +21,10 @@ const activitySchema = z.discriminatedUnion("event", [
   z.object({ event: z.literal("BRAND_CREATED"), details: z.object({ name: z.string() }) }),
   z.object({ event: z.literal("BRAND_UPDATED"), details: z.object({ changes: z.array(brandFieldChangeSchema) }) }),
   z.object({ event: z.literal("TASK_FAILED"), details: z.object({ error: z.string() }) }),
+  // The hash pins exactly which payload was proposed and approved.
+  z.object({ event: z.literal("PROPOSED_ACTION_SUBMITTED"), details: z.object({ payloadHash: z.string() }) }),
+  z.object({ event: z.literal("APPROVAL_APPROVED"), details: z.object({ payloadHash: z.string() }) }),
+  z.object({ event: z.literal("EXECUTION_SUCCEEDED"), details: z.object({ channel: z.enum(CHANNELS), attempt: z.number() }) }),
 ]);
 
 export type Activity = z.infer<typeof activitySchema>;
@@ -31,6 +36,7 @@ export type NewActivityEntry = Activity & {
   actor: Actor | "system";
   brandId: string;
   taskId?: string;
+  approvalId?: string;
 };
 
 export type ActivityEntry = Activity & {
@@ -39,6 +45,7 @@ export type ActivityEntry = Activity & {
   actorName: string | null;
   brand: { id: string; name: string } | null;
   taskId: string | null;
+  approvalId: string | null;
   createdAt: Date;
 };
 
@@ -47,9 +54,9 @@ export type ActivityEntry = Activity & {
 // It checks nothing itself: only application-layer operations that already passed
 // requireRole, and background functions acting for one, call it.
 export async function appendActivity(tx: Prisma.TransactionClient, entry: NewActivityEntry): Promise<void> {
-  const { workspaceId, actor, brandId, taskId, event, details } = entry;
+  const { workspaceId, actor, brandId, taskId, approvalId, event, details } = entry;
   const actorId = actor === "system" ? null : actor.userId;
-  await tx.activityLogEntry.create({ data: { workspaceId, actorId, brandId, taskId, event, details } });
+  await tx.activityLogEntry.create({ data: { workspaceId, actorId, brandId, taskId, approvalId, event, details } });
 }
 
 // Newest first. Only members of the Workspace can read its log.
@@ -69,6 +76,7 @@ export async function listActivity(actor: Actor, workspaceId: string): Promise<R
       actorName: row.actor?.name ?? null,
       brand: row.brand,
       taskId: row.taskId,
+      approvalId: row.approvalId,
       createdAt: row.createdAt,
     })),
   );
