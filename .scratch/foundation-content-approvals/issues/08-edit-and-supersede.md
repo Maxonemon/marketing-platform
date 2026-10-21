@@ -16,3 +16,7 @@ Spec: [../spec.md](../spec.md) (stories 38–39, 41, 54–56, 58). Follows ADR-0
 - [ ] The execution service refuses a SUPERSEDED Approval even if an Execution event was already queued
 - [ ] The Content Asset page shows the history of its Proposed Actions and their Approval states
 - [ ] Tests: edit supersedes a Pending Approval; edit supersedes an Approved-not-executed one and its queued Execution then fails; changing only recipients supersedes; an Approval with a SUCCEEDED Execution is not superseded; old Proposed Actions are unchanged
+
+**From ticket 04's review:**
+
+- [ ] The execution service reads the Approval's status, then claims the attempt in a separate step. A supersede that lands between the two could still let the old version go out once. Re-check that the Approval is still APPROVED in the same step that claims the attempt (e.g. a conditional insert or a row lock), and test it.
