@@ -6,7 +6,7 @@ Spec: [../spec.md](../spec.md) (stories 40, 43–44, 46, 48–49, 59–62, 74–
 
 **Blocked by:** 03 (Request content → Review)
 
-**Status:** done (2026-10-21). Verified by `pnpm check` (14 test files, 108 tests) and `next build`. Not yet tried in the browser with the Inngest Dev Server. Follow-ups from the reviews are noted in tickets 06, 08 and 10.
+**Status:** done (2026-10-21). Verified by `pnpm check` (14 test files, 108 tests) and `next build`. Browser run with the Inngest Dev Server: request → In review → submit → Pending Approval → approve → Execution succeeded → Activity Log shows the submission, decision and Execution; the submitted Review is 404. Follow-ups from the reviews are noted in tickets 06, 08 and 10.
 
 **Run `security-reviewer` before commit** (approvals + execution).
 
