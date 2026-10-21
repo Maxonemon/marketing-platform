@@ -26,11 +26,13 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  sessions       Session[]
-  accounts       Account[]
-  memberships    WorkspaceMember[]
-  activity       ActivityLogEntry[]
-  requestedTasks Task[]
+  sessions         Session[]
+  accounts         Account[]
+  memberships      WorkspaceMember[]
+  activity         ActivityLogEntry[]
+  requestedTasks   Task[]
+  proposedActions  ProposedAction[]
+  decidedApprovals Approval[]
 }
 
 model Session {
@@ -86,10 +88,11 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members  WorkspaceMember[]
-  brands   Brand[]
-  tasks    Task[]
-  activity ActivityLogEntry[]
+  members         WorkspaceMember[]
+  brands          Brand[]
+  tasks           Task[]
+  proposedActions ProposedAction[]
+  activity        ActivityLogEntry[]
 }
 
 model WorkspaceMember {
@@ -117,9 +120,10 @@ model Brand {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  tasks     Task[]
-  activity  ActivityLogEntry[]
+  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks           Task[]
+  proposedActions ProposedAction[]
+  activity        ActivityLogEntry[]
 
   @@index([workspaceId])
 }
@@ -172,22 +176,100 @@ model ContentAsset {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task            Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  proposedActions ProposedAction[]
 
   @@unique([taskId, variant])
+}
+
+// An immutable snapshot of exactly what would be published or sent (ADR-0001). It is
+// written once and never updated: no code updates it, and every material change adds a
+// new row. `payload` is the canonical payload and `payloadHash` its SHA-256
+// (src/lib/workflows/proposed-action-payload.ts).
+model ProposedAction {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  brandId        String
+  contentAssetId String
+  createdById    String
+  payload        Json
+  payloadHash    String
+  createdAt      DateTime @default(now())
+
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  brand        Brand        @relation(fields: [brandId], references: [id], onDelete: NoAction)
+  contentAsset ContentAsset @relation(fields: [contentAssetId], references: [id], onDelete: NoAction)
+  createdBy    User         @relation(fields: [createdById], references: [id], onDelete: NoAction)
+  approval     Approval?
+
+  @@index([workspaceId])
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  SUPERSEDED
+}
+
+// The human decision on one Proposed Action. It says nothing about whether the action
+// ran: each attempt is an Execution.
+model Approval {
+  id               String         @id @default(cuid())
+  proposedActionId String         @unique
+  status           ApprovalStatus @default(PENDING)
+  decidedById      String?
+  decidedAt        DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  proposedAction ProposedAction     @relation(fields: [proposedActionId], references: [id], onDelete: Cascade)
+  decidedBy      User?              @relation(fields: [decidedById], references: [id], onDelete: NoAction)
+  executions     Execution[]
+  activity       ActivityLogEntry[]
+}
+
+enum ExecutionStatus {
+  STARTED
+  SUCCEEDED
+  FAILED
+}
+
+// One attempt to carry out an Approved Proposed Action; only
+// src/lib/workflows/execution-service.ts writes them. Every attempt for an Approval
+// shares the idempotency key derived from it, and the unique attempt number keeps two
+// runs from both claiming the same attempt.
+model Execution {
+  id             String          @id @default(cuid())
+  approvalId     String
+  idempotencyKey String
+  attempt        Int
+  status         ExecutionStatus @default(STARTED)
+  result         Json?
+  error          String?
+  startedAt      DateTime        @default(now())
+  finishedAt     DateTime?
+
+  approval Approval @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+
+  @@unique([approvalId, attempt])
 }
 
 enum ActivityEvent {
   BRAND_CREATED
   BRAND_UPDATED
   TASK_FAILED
+  PROPOSED_ACTION_SUBMITTED
+  APPROVAL_APPROVED
+  EXECUTION_SUCCEEDED
 }
 
 // Append-only: src/lib/app/activity-log.ts only ever inserts entries. NoAction keeps a
-// User, Brand or Task with entries from being deleted, so no entry is ever rewritten;
-// only deleting the whole Workspace removes its log. The id only grows, which gives a
-// strict newest-first order even when two entries share a timestamp. A null actorId
-// means the system acted, e.g. a background Task failed.
+// User, Brand, Task or Approval with entries from being deleted, so no entry is ever
+// rewritten; only deleting the whole Workspace removes its log. The id only grows, which
+// gives a strict newest-first order even when two entries share a timestamp. A null
+// actorId means the system acted, e.g. a background Task failed.
 model ActivityLogEntry {
   id          Int           @id @default(autoincrement())
   workspaceId String
@@ -195,6 +277,7 @@ model ActivityLogEntry {
   event       ActivityEvent
   brandId     String?
   taskId      String?
+  approvalId  String?
   details     Json
   createdAt   DateTime      @default(now())
 
@@ -202,6 +285,7 @@ model ActivityLogEntry {
   actor     User?     @relation(fields: [actorId], references: [id], onDelete: NoAction)
   brand     Brand?    @relation(fields: [brandId], references: [id], onDelete: NoAction)
   task      Task?     @relation(fields: [taskId], references: [id], onDelete: NoAction)
+  approval  Approval? @relation(fields: [approvalId], references: [id], onDelete: NoAction)
 
   @@index([workspaceId, id])
 }
