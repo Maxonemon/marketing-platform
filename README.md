@@ -14,7 +14,8 @@ Built in small tickets, tracked as markdown in [`.scratch/foundation-content-app
 | 02 | Done | Create, list and edit Brands; an append-only Activity Log any member can browse |
 | 03 | Done | Request content for a Brand → background Task (fake AI) → Task history → Review |
 | 04 | Done | Submit a Variant → immutable Proposed Action → Owner/Admin approves → background Execution on the mock Channel, in the Activity Log |
-| 05–14 | Planned | Approval queue and rejection, real AI, Brand rules, edit and supersede, expiry, retries, members, Slack, dashboard |
+| 05 | Done | Approval queue (Pending, oldest first) → Owner/Admin rejects with a required comment → any member resubmits it as a new Proposed Action; each Approval is decided once |
+| 06–14 | Planned | Real AI, Brand rules, edit and supersede, expiry, retries, members, Slack, dashboard |
 
 The full feature spec is [`spec.md`](.scratch/foundation-content-approvals/spec.md); the long-term plan is [`docs/plan/marketing-platform.md`](docs/plan/marketing-platform.md).
 

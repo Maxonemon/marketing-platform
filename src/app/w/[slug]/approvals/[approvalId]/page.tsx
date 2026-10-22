@@ -3,13 +3,16 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import type { ApprovalStatus, ExecutionStatus } from "@/generated/prisma/client";
 import { getApproval, type ApprovalDetail } from "@/lib/app/approvals";
+import type { WorkspaceSummary } from "@/lib/app/workspaces";
 import { CHANNEL_LABELS, CONTENT_TYPE_LABELS } from "@/lib/content-options";
 import type { ProposedActionPayload } from "@/lib/workflows/proposed-action-payload";
 import { requireWorkspace } from "../../require-workspace";
 import { taskTitle } from "../../tasks/task-display";
 import { Timestamp } from "../../timestamp";
-import { approveAction } from "../actions";
+import { approveAction, rejectAction, resubmitAction } from "../actions";
 import { ApproveForm } from "./approve-form";
+import { RejectForm } from "./reject-form";
+import { ResubmitForm } from "./resubmit-form";
 
 const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
   PENDING: "Pending",
@@ -48,7 +51,6 @@ async function ApprovalView({ params }: ApprovalPageProps) {
   if (!result.ok) notFound();
   const approval = result.value;
   const { proposedAction, task } = approval;
-  const isApprover = workspace.role === "OWNER" || workspace.role === "ADMIN";
 
   return (
     <>
@@ -64,6 +66,16 @@ async function ApprovalView({ params }: ApprovalPageProps) {
             </>
           )}
         </span>
+        {approval.comment && (
+          <p className="wrap-break-word whitespace-pre-wrap">
+            Comment: <q>{approval.comment}</q>
+          </p>
+        )}
+        {approval.resubmissionOfId && (
+          <Link href={`/w/${workspace.slug}/approvals/${approval.resubmissionOfId}`} className="underline">
+            This resubmits a rejected Approval: view it
+          </Link>
+        )}
       </div>
       <section className="flex flex-col gap-2">
         <h2 className="text-lg font-semibold">Proposed Action</h2>
@@ -76,13 +88,8 @@ async function ApprovalView({ params }: ApprovalPageProps) {
           </p>
         )}
       </section>
-      {approval.status === "PENDING" &&
-        proposedAction.payload &&
-        (isApprover ? (
-          <ApproveForm action={approveAction.bind(null, workspace.id, approval.id)} />
-        ) : (
-          <p className="text-sm text-zinc-500">Waiting for an Owner or Admin to decide.</p>
-        ))}
+      {approval.status === "PENDING" && <Decision approval={approval} workspace={workspace} />}
+      {approval.status === "REJECTED" && <Resubmission approval={approval} workspace={workspace} />}
       <section className="flex flex-col gap-2 text-sm">
         <h2 className="text-lg font-semibold">Execution</h2>
         <Executions approval={approval} />
@@ -92,6 +99,49 @@ async function ApprovalView({ params }: ApprovalPageProps) {
         <ApprovalContext approval={approval} workspaceSlug={workspace.slug} />
       </section>
     </>
+  );
+}
+
+interface ApprovalActionsProps {
+  approval: ApprovalDetail;
+  workspace: WorkspaceSummary;
+}
+
+// Approve and reject, shown only to Owners and Admins while the Approval is Pending; the
+// server enforces the same rules whatever the page shows. A Proposed Action that fails
+// its hash check can only be rejected.
+function Decision({ approval, workspace }: ApprovalActionsProps) {
+  const isApprover = workspace.role === "OWNER" || workspace.role === "ADMIN";
+  if (!isApprover) {
+    return <p className="text-sm text-zinc-500">Waiting for an Owner or Admin to decide.</p>;
+  }
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-lg font-semibold">Decision</h2>
+      {approval.proposedAction.payload && <ApproveForm action={approveAction.bind(null, workspace.id, approval.id)} />}
+      <RejectForm action={rejectAction.bind(null, workspace.id, approval.id)} />
+    </section>
+  );
+}
+
+// After a rejection any member can resubmit the Content Asset, once.
+function Resubmission({ approval, workspace }: ApprovalActionsProps) {
+  if (approval.resubmittedAsId) {
+    return (
+      <Link href={`/w/${workspace.slug}/approvals/${approval.resubmittedAsId}`} className="text-sm underline">
+        Resubmitted: view the new Approval
+      </Link>
+    );
+  }
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-lg font-semibold">Resubmit</h2>
+      <p className="text-sm text-zinc-500">
+        Proposes the Content Asset, as it is now, as a new Proposed Action with a new Pending Approval. This rejected
+        one stays as it is.
+      </p>
+      <ResubmitForm action={resubmitAction.bind(null, workspace.id, workspace.slug, approval.id)} />
+    </section>
   );
 }
 

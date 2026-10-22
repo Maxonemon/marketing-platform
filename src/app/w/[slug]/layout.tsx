@@ -32,6 +32,7 @@ async function WorkspaceMenu({ params }: Pick<WorkspaceLayoutProps, "params">) {
       <Link href={`/w/${slug}`}>Home</Link>
       <Link href={`/w/${slug}/brands`}>Brands</Link>
       <Link href={`/w/${slug}/tasks`}>Tasks</Link>
+      <Link href={`/w/${slug}/approvals`}>Approvals</Link>
       <Link href={`/w/${slug}/activity`}>Activity Log</Link>
     </nav>
   );

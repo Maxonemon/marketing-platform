@@ -1,8 +1,10 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { redirect } from "next/navigation";
 import { sendApprovalApproved } from "@/inngest/client";
-import { approve } from "@/lib/app/approvals";
+import { approve, reject, resubmit } from "@/lib/app/approvals";
+import type { FieldErrors } from "@/lib/app/result";
 import { requireActor } from "@/lib/session";
 
 export interface ApproveFormState {
@@ -21,4 +23,45 @@ export async function approveAction(workspaceId: string, approvalId: string): Pr
   if (!result.ok) return { message: result.error.message };
   refresh();
   return {};
+}
+
+export interface RejectFormState {
+  message?: string;
+  fieldErrors?: FieldErrors;
+  // What was typed, sent back on failure so the form keeps it.
+  comment?: string;
+}
+
+export type RejectFormAction = (previous: RejectFormState, formData: FormData) => Promise<RejectFormState>;
+
+// Bound ids are trusted only as far as reject checks them (an Owner or Admin of the
+// Workspace, an Approval scoped to it and still PENDING).
+export async function rejectAction(
+  workspaceId: string,
+  approvalId: string,
+  _previous: RejectFormState,
+  formData: FormData,
+): Promise<RejectFormState> {
+  const actor = await requireActor();
+  const comment = String(formData.get("comment") ?? "");
+  const result = await reject(actor, workspaceId, approvalId, { comment });
+  if (!result.ok) return { message: result.error.message, fieldErrors: result.error.fieldErrors, comment };
+  refresh();
+  return {};
+}
+
+export interface ResubmitFormState {
+  message?: string;
+}
+
+export type ResubmitFormAction = (previous: ResubmitFormState, formData: FormData) => Promise<ResubmitFormState>;
+
+// Resubmits a Rejected Approval and opens the new one. Bound ids are trusted only as far
+// as resubmit checks them (membership, an Approval scoped to the Workspace and REJECTED).
+// The bound slug only shapes the caller's own redirect, which always stays under /w/.
+export async function resubmitAction(workspaceId: string, workspaceSlug: string, approvalId: string): Promise<ResubmitFormState> {
+  const actor = await requireActor();
+  const result = await resubmit(actor, workspaceId, approvalId);
+  if (!result.ok) return { message: result.error.message };
+  redirect(`/w/${workspaceSlug}/approvals/${result.value.id}`);
 }

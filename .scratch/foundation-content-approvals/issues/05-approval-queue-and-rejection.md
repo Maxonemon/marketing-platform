@@ -6,11 +6,11 @@ Spec: [../spec.md](../spec.md) (stories 45, 47, 50–51, 57).
 
 **Blocked by:** 04 (Submit → Approve → mock Execution)
 
-**Status:** ready-for-agent
+**Status:** done (2026-10-22). Verified by `pnpm check` (14 test files, 123 tests). No browser run yet. Any member can resubmit (story 57), not only the author. The queue shows the oldest 100 Pending Approvals.
 
 **Run `security-reviewer` before commit** (approvals).
 
-- [ ] Approval queue page and list operation (Pending only, oldest first, current Workspace only)
-- [ ] Reject operation: Owner/Admin only, comment required, "only if still PENDING" conditional update, logged with the comment
-- [ ] Resubmit creates a new Proposed Action + Pending Approval; the rejected records are untouched
-- [ ] Tests: reject without a comment is refused; approve-after-reject and reject-after-approve are refused; concurrent approve + reject leave exactly one decision; resubmit creates a new Approval and keeps the old one REJECTED; the queue never shows another Workspace's Approvals
+- [x] Approval queue page and list operation (Pending only, oldest first, current Workspace only)
+- [x] Reject operation: Owner/Admin only, comment required, "only if still PENDING" conditional update, logged with the comment
+- [x] Resubmit creates a new Proposed Action + Pending Approval; the rejected records are untouched
+- [x] Tests: reject without a comment is refused; approve-after-reject and reject-after-approve are refused; concurrent approve + reject leave exactly one decision; resubmit creates a new Approval and keeps the old one REJECTED; the queue never shows another Workspace's Approvals

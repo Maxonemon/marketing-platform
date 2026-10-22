@@ -441,10 +441,13 @@ describe("resubmitting after a rejection", () => {
 describe("another Workspace's Approvals", () => {
   it("can't be submitted, read, approved, rejected or resubmitted: each is not found, and nothing changes", async () => {
     const { mia, workspaceId, brandId } = await setUpWorkspace();
-    const { taskId, variantId } = await createTestReview(mia, workspaceId, brandId, POST_TEXT);
-    const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
     const outsider = await createTestUser("Oscar");
-    const outsiderWorkspaceId = await createTestWorkspace(outsider, "other-agency");
+    // Independent setup, in parallel to keep the test fast.
+    const [{ taskId, variantId }, approvalId, outsiderWorkspaceId] = await Promise.all([
+      createTestReview(mia, workspaceId, brandId, POST_TEXT),
+      createTestApproval(mia, workspaceId, brandId, POST_TEXT),
+      createTestWorkspace(outsider, "other-agency"),
+    ]);
     const { startExecution, startedApprovalIds } = recordingStartExecution();
 
     for (const targetWorkspaceId of [workspaceId, outsiderWorkspaceId]) {
