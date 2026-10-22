@@ -53,6 +53,7 @@ const EVENT_TEXT: Record<ActivityEntry["event"], string> = {
   TASK_FAILED: "recorded a failed content Task for",
   PROPOSED_ACTION_SUBMITTED: "submitted content for approval for",
   APPROVAL_APPROVED: "approved a Proposed Action for",
+  APPROVAL_REJECTED: "rejected a Proposed Action for",
   EXECUTION_SUCCEEDED: "executed an approved Proposed Action for",
 };
 
@@ -79,6 +80,11 @@ function ActivityItem({ entry, workspaceSlug }: ActivityItemProps) {
         </Link>
       )}
       {entry.event === "BRAND_UPDATED" && <ChangeList changes={entry.details.changes} />}
+      {entry.event === "APPROVAL_REJECTED" && (
+        <p className="wrap-break-word whitespace-pre-wrap">
+          <q>{entry.details.comment}</q>
+        </p>
+      )}
       {entry.event === "TASK_FAILED" && (
         <p className="wrap-break-word">
           {entry.details.error}{" "}

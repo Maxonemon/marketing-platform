@@ -214,13 +214,15 @@ enum ApprovalStatus {
 }
 
 // The human decision on one Proposed Action. It says nothing about whether the action
-// ran: each attempt is an Execution.
+// ran: each attempt is an Execution. `comment` is the Approver's reason, required to
+// reject (src/lib/app/approvals.ts).
 model Approval {
   id               String         @id @default(cuid())
   proposedActionId String         @unique
   status           ApprovalStatus @default(PENDING)
   decidedById      String?
   decidedAt        DateTime?
+  comment          String?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -262,6 +264,7 @@ enum ActivityEvent {
   TASK_FAILED
   PROPOSED_ACTION_SUBMITTED
   APPROVAL_APPROVED
+  APPROVAL_REJECTED
   EXECUTION_SUCCEEDED
 }
 

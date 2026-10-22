@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { addTestMember, createTestApproval, createTestBrand, createTestReview, createTestUser, createTestWorkspace } from "@/test/fixtures";
 import { listActivity } from "./activity-log";
-import { approve, getApproval, type StartExecution } from "./approvals";
+import { approve, getApproval, listPendingApprovals, reject, type StartExecution } from "./approvals";
 import { getReview, submitReview } from "./reviews";
 import { getTask } from "./tasks";
 
@@ -181,8 +181,171 @@ describe("approving", () => {
   });
 });
 
+describe("rejecting", () => {
+  it("is allowed to an Admin with a comment: the Approval is REJECTED, the author sees the comment, and it is logged", async () => {
+    const { adam, mia, workspaceId, brandId } = await setUpWorkspace();
+    const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
+
+    const result = await reject(adam, workspaceId, approvalId, { comment: "  Name the roast date, please.  " });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { status: "REJECTED", decidedBy: "Adam", decidedAt: expect.any(Date), comment: "Name the roast date, please.", executions: [] },
+    });
+    expect(await listActivity(mia, workspaceId)).toMatchObject({
+      ok: true,
+      value: [
+        {
+          event: "APPROVAL_REJECTED",
+          actorName: "Adam",
+          brand: { id: brandId },
+          approvalId,
+          details: { payloadHash: EXPECTED_HASH, comment: "Name the roast date, please." },
+        },
+        { event: "PROPOSED_ACTION_SUBMITTED" },
+        { event: "BRAND_CREATED" },
+      ],
+    });
+  });
+
+  it.each(["", "   "])("is refused without a comment (%j), and the Approval stays Pending", async (comment) => {
+    const { owner, mia, workspaceId, brandId } = await setUpWorkspace();
+    const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
+
+    const result = await reject(owner, workspaceId, approvalId, { comment });
+
+    expect(result).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", fieldErrors: { comment: [expect.any(String)] } } });
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({ ok: true, value: { status: "PENDING", comment: null } });
+  });
+
+  it("is refused to a Member", async () => {
+    const { mia, workspaceId, brandId } = await setUpWorkspace();
+    const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
+
+    const result = await reject(mia, workspaceId, approvalId, { comment: "Not for me to decide." });
+
+    expect(result).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({ ok: true, value: { status: "PENDING" } });
+  });
+});
+
+describe("a decision is made once", () => {
+  it("refuses to approve a Rejected Approval, and starts nothing", async () => {
+    const { owner, adam, mia, workspaceId, brandId } = await setUpWorkspace();
+    const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
+    await reject(adam, workspaceId, approvalId, { comment: "Too early to announce." });
+    const { startExecution, startedApprovalIds } = recordingStartExecution();
+
+    const result = await approve(owner, workspaceId, approvalId, startExecution);
+
+    expect(result).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    expect(startedApprovalIds).toEqual([]);
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { status: "REJECTED", decidedBy: "Adam", comment: "Too early to announce." },
+    });
+  });
+
+  it("refuses to reject an Approved Approval", async () => {
+    const { owner, adam, mia, workspaceId, brandId } = await setUpWorkspace();
+    const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
+    await approve(owner, workspaceId, approvalId, recordingStartExecution().startExecution);
+
+    const result = await reject(adam, workspaceId, approvalId, { comment: "Wait, not yet." });
+
+    expect(result).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { status: "APPROVED", decidedBy: "Olivia", comment: null },
+    });
+  });
+
+  it("refuses to reject a Rejected Approval again", async () => {
+    const { owner, adam, mia, workspaceId, brandId } = await setUpWorkspace();
+    const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
+    await reject(adam, workspaceId, approvalId, { comment: "Too early to announce." });
+
+    const result = await reject(owner, workspaceId, approvalId, { comment: "And off-voice." });
+
+    expect(result).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { decidedBy: "Adam", comment: "Too early to announce." },
+    });
+  });
+
+  it("gives exactly one decision when two Approvers approve and reject at the same moment", async () => {
+    const { owner, adam, mia, workspaceId, brandId } = await setUpWorkspace();
+    const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
+    const { startExecution, startedApprovalIds } = recordingStartExecution();
+
+    const [approved, rejected] = await Promise.all([
+      approve(owner, workspaceId, approvalId, startExecution),
+      reject(adam, workspaceId, approvalId, { comment: "Off-voice." }),
+    ]);
+
+    const outcomes = [approved, rejected];
+    expect(outcomes.filter(({ ok }) => ok)).toHaveLength(1);
+    expect(outcomes.filter(({ ok }) => !ok)).toMatchObject([{ error: { code: "CONFLICT" } }]);
+    const decision = approved.ok
+      ? { status: "APPROVED", decidedBy: "Olivia", comment: null }
+      : { status: "REJECTED", decidedBy: "Adam", comment: "Off-voice." };
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({ ok: true, value: decision });
+    expect(startedApprovalIds).toEqual(approved.ok ? [approvalId] : []);
+    const activity = await listActivity(mia, workspaceId);
+    if (!activity.ok) throw new Error("expected the Activity Log");
+    const decisions = activity.value.filter(({ event }) => event === "APPROVAL_APPROVED" || event === "APPROVAL_REJECTED");
+    expect(decisions).toMatchObject([{ event: approved.ok ? "APPROVAL_APPROVED" : "APPROVAL_REJECTED" }]);
+  });
+});
+
+describe("the approval queue", () => {
+  it("lists only Pending Approvals, oldest first, with who submitted them and their Task", async () => {
+    const { owner, adam, mia, workspaceId, brandId } = await setUpWorkspace();
+    const oldest = await createTestApproval(mia, workspaceId, brandId, "First post.");
+    // Only the two Pending ones need an order; the rest run in parallel to keep the test fast.
+    const [newest, rejected, approved] = await Promise.all([
+      createTestApproval(adam, workspaceId, brandId, "Newest post."),
+      createTestApproval(mia, workspaceId, brandId, "Rejected post."),
+      createTestApproval(adam, workspaceId, brandId, "Approved post."),
+    ]);
+    await Promise.all([
+      reject(owner, workspaceId, rejected, { comment: "Off-voice." }),
+      approve(owner, workspaceId, approved, recordingStartExecution().startExecution),
+    ]);
+
+    const queue = await listPendingApprovals(mia, workspaceId);
+
+    expect(queue).toMatchObject({
+      ok: true,
+      value: [
+        { id: oldest, submittedBy: "Mia", submittedAt: expect.any(Date), task: { brand: { id: brandId, name: "Northwind Coffee" } } },
+        { id: newest, submittedBy: "Adam" },
+      ],
+    });
+    if (!queue.ok) throw new Error("expected the queue");
+    expect(queue.value).toHaveLength(2);
+  });
+
+  it("never shows another Workspace's Approvals", async () => {
+    const { mia, workspaceId, brandId } = await setUpWorkspace();
+    const outsider = await createTestUser("Oscar");
+    const outsiderWorkspaceId = await createTestWorkspace(outsider, "other-agency");
+    const outsiderBrandId = await createTestBrand(outsider, outsiderWorkspaceId, { name: "Southwind Tea" });
+    const [ours, theirs] = await Promise.all([
+      createTestApproval(mia, workspaceId, brandId, POST_TEXT),
+      createTestApproval(outsider, outsiderWorkspaceId, outsiderBrandId, "Their post."),
+    ]);
+
+    expect(await listPendingApprovals(mia, workspaceId)).toMatchObject({ ok: true, value: [{ id: ours }] });
+    expect(await listPendingApprovals(outsider, outsiderWorkspaceId)).toMatchObject({ ok: true, value: [{ id: theirs }] });
+    expect(await listPendingApprovals(outsider, workspaceId)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+  });
+});
+
 describe("another Workspace's Approvals", () => {
-  it("can't be submitted, read or approved: each is not found, and nothing changes", async () => {
+  it("can't be submitted, read, approved or rejected: each is not found, and nothing changes", async () => {
     const { mia, workspaceId, brandId } = await setUpWorkspace();
     const { taskId, variantId } = await createTestReview(mia, workspaceId, brandId, POST_TEXT);
     const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
@@ -195,6 +358,7 @@ describe("another Workspace's Approvals", () => {
       expect(await submitReview(outsider, targetWorkspaceId, taskId, { contentAssetId: variantId })).toMatchObject(notFound);
       expect(await getApproval(outsider, targetWorkspaceId, approvalId)).toMatchObject(notFound);
       expect(await approve(outsider, targetWorkspaceId, approvalId, startExecution)).toMatchObject(notFound);
+      expect(await reject(outsider, targetWorkspaceId, approvalId, { comment: "Not mine." })).toMatchObject(notFound);
     }
     expect(startedApprovalIds).toEqual([]);
     expect(await getTask(mia, workspaceId, taskId)).toMatchObject({ ok: true, value: { status: "IN_REVIEW" } });

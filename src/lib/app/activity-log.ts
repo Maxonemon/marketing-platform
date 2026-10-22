@@ -24,6 +24,8 @@ const activitySchema = z.discriminatedUnion("event", [
   // The hash pins exactly which payload was proposed and approved.
   z.object({ event: z.literal("PROPOSED_ACTION_SUBMITTED"), details: z.object({ payloadHash: z.string() }) }),
   z.object({ event: z.literal("APPROVAL_APPROVED"), details: z.object({ payloadHash: z.string() }) }),
+  // The comment is the Approver's reason, written for the author to read.
+  z.object({ event: z.literal("APPROVAL_REJECTED"), details: z.object({ payloadHash: z.string(), comment: z.string() }) }),
   z.object({ event: z.literal("EXECUTION_SUCCEEDED"), details: z.object({ channel: z.enum(CHANNELS), attempt: z.number() }) }),
 ]);
 
