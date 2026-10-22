@@ -1,4 +1,9 @@
 {
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
   "permissions": {
     "allow": [
       "Bash(pnpm check)",
@@ -8,12 +13,12 @@
       "Bash(pnpm vitest *)",
       "Bash(git status *)",
       "Bash(git diff *)",
-      "Bash(git log *)"
-    ],
-    "ask": [
-      "Bash(git commit *)",
-      "Bash(git checkout *)",
-      "Bash(git restore *)"
+      "Bash(git log *)",
+      "ClaudeInChromeDomain(localhost:3000)",
+      "Bash(git reset *)",
+      "Bash(git add *)",
+      "Bash(git push)",
+      "Bash(git push origin main)"
     ],
     "deny": [
       "Bash(pnpm add *)",
@@ -23,23 +28,43 @@
       "Bash(npm i *)",
       "Bash(yarn add *)",
       "Bash(npx *)",
-      "Bash(git push *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * +*)",
       "Bash(git reset --hard *)",
       "Bash(rm -rf *)",
       "Read(./.env)",
       "Read(./.env.*)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git restore *)"
     ]
   },
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
-        "hooks": [{ "type": "command", "command": "node .claude/hooks/guard-edit.mjs" }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guard-edit.mjs"
+          }
+        ]
       }
     ],
     "Stop": [
       {
-        "hooks": [{ "type": "command", "command": "node .claude/hooks/check.mjs", "timeout": 300 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/check.mjs",
+            "timeout": 300
+          }
+        ]
       }
     ]
   }
