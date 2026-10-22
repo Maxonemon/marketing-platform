@@ -2,8 +2,7 @@ import { z } from "zod";
 import type { Approval } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { requireRole, type Actor } from "@/lib/permissions";
-import { hashPayload, type ProposedActionPayload } from "@/lib/workflows/proposed-action-payload";
-import { appendActivity } from "./activity-log";
+import { proposeAction } from "./approvals";
 import { fail, ok, type Result } from "./result";
 import { taskSummaryInclude, toTaskSummary, type TaskSummary } from "./tasks";
 
@@ -41,10 +40,10 @@ export async function getReview(actor: Actor, workspaceId: string, taskId: strin
   return ok({ task: toTaskSummary(row), variants: row.contentAssets });
 }
 
-// Submits the picked Variant for approval: one transaction writes an immutable Proposed
-// Action (what would go out, where, to whom and when, with its hash), its Pending
-// Approval and the Activity Log entry, and completes the Task. The Task moves from
-// IN_REVIEW only if it is still there, so a Review is submitted at most once.
+// Submits the picked Variant for approval: one transaction completes the Task and
+// proposes the Variant (an immutable Proposed Action, its Pending Approval and the
+// Activity Log entry). The Task moves from IN_REVIEW only if it is still there, so a
+// Review is submitted at most once.
 export async function submitReview(
   actor: Actor,
   workspaceId: string,
@@ -57,43 +56,12 @@ export async function submitReview(
   const picked = parsed.success ? review.value.variants.find(({ id }) => id === parsed.data.contentAssetId) : undefined;
   if (!picked) return fail("INVALID_INPUT", VARIANT_NOT_IN_REVIEW, { contentAssetId: [VARIANT_NOT_IN_REVIEW] });
   const { task } = review.value;
-  const payload: ProposedActionPayload = {
-    channel: task.input.channel,
-    contentType: task.input.contentType,
-    content: { body: picked.body },
-    audience: null,
-    timing: { kind: "AS_SOON_AS_APPROVED" },
-  };
-  const payloadHash = hashPayload(payload);
   return db.$transaction(async (tx) => {
     const completed = await tx.task.updateMany({
       where: { id: taskId, workspaceId, status: "IN_REVIEW" },
       data: { status: "COMPLETED" },
     });
     if (completed.count === 0) return fail("NOT_FOUND", REVIEW_NOT_FOUND);
-    const approval = await tx.approval.create({
-      data: {
-        proposedAction: {
-          create: {
-            workspaceId,
-            brandId: task.brand.id,
-            contentAssetId: picked.id,
-            createdById: actor.userId,
-            payload,
-            payloadHash,
-          },
-        },
-      },
-    });
-    await appendActivity(tx, {
-      workspaceId,
-      actor,
-      brandId: task.brand.id,
-      taskId,
-      approvalId: approval.id,
-      event: "PROPOSED_ACTION_SUBMITTED",
-      details: { payloadHash },
-    });
-    return ok(approval);
+    return ok(await proposeAction(tx, actor, { workspaceId, task, contentAsset: picked }));
   });
 }

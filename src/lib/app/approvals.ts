@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { ApprovalStatus, ExecutionStatus, Prisma } from "@/generated/prisma/client";
-import { db } from "@/lib/db";
+import type { Approval, ApprovalStatus, ExecutionStatus, Prisma } from "@/generated/prisma/client";
+import { db, isUniqueViolation } from "@/lib/db";
 import { APPROVAL_COMMENT_MAX_LENGTH } from "@/lib/limits";
 import { requireRole, type Actor } from "@/lib/permissions";
-import { verifyPayload, type ProposedActionPayload } from "@/lib/workflows/proposed-action-payload";
+import { hashPayload, verifyPayload, type ProposedActionPayload } from "@/lib/workflows/proposed-action-payload";
 import { appendActivity } from "./activity-log";
 import { fail, ok, type Result } from "./result";
 import type { ReviewVariant } from "./reviews";
@@ -16,6 +16,9 @@ export interface ApprovalDetail {
   decidedAt: Date | null;
   // The Approver's reason; always set on a REJECTED Approval.
   comment: string | null;
+  // The Rejected Approval this one resubmits, and the Approval this one was resubmitted as.
+  resubmissionOfId: string | null;
+  resubmittedAsId: string | null;
   // Exactly what would be executed, and its hash.
   proposedAction: {
     id: string;
@@ -40,6 +43,16 @@ export interface ExecutionSummary {
   finishedAt: Date | null;
 }
 
+// What to propose: a Content Asset as it is now, and the Task it came from (its Brand,
+// Channel and content type).
+export interface Proposal {
+  workspaceId: string;
+  task: TaskSummary;
+  contentAsset: { id: string; body: string };
+  // The Rejected Approval this one resubmits.
+  resubmissionOfId?: string;
+}
+
 // One entry in the approval queue.
 export interface PendingApproval {
   id: string;
@@ -58,6 +71,8 @@ const APPROVAL_NOT_FOUND = "Approval not found.";
 export const APPROVAL_ALREADY_DECIDED = "This Approval has already been decided.";
 const PAYLOAD_CHANGED = "This Proposed Action no longer matches its hash, so it can't be approved.";
 const COMMENT_REQUIRED = "Tell the author what to change.";
+const NOT_REJECTED = "Only a rejected Approval can be resubmitted.";
+const ALREADY_RESUBMITTED = "This rejection has already been resubmitted.";
 
 const rejectSchema = z.object({
   comment: z
@@ -71,6 +86,7 @@ export type RejectInput = z.input<typeof rejectSchema>;
 
 const approvalDetailInclude = {
   decidedBy: { select: { name: true } },
+  resubmittedAs: { select: { id: true } },
   executions: {
     select: { id: true, attempt: true, status: true, error: true, startedAt: true, finishedAt: true },
     orderBy: { attempt: "asc" },
@@ -86,6 +102,38 @@ const approvalDetailInclude = {
 // Approvals belong to the Workspace of their Proposed Action.
 function inWorkspace(approvalId: string, workspaceId: string): Prisma.ApprovalWhereInput {
   return { id: approvalId, proposedAction: { workspaceId } };
+}
+
+// The one way to propose, in the caller's transaction: an immutable Proposed Action of
+// the Content Asset (what would go out, where, to whom and when, with its hash), its
+// Pending Approval and the PROPOSED_ACTION_SUBMITTED entry. It checks nothing itself:
+// callers have passed requireRole and found the Task and Content Asset in the Workspace.
+export async function proposeAction(tx: Prisma.TransactionClient, actor: Actor, proposal: Proposal): Promise<Approval> {
+  const { workspaceId, task, contentAsset, resubmissionOfId } = proposal;
+  const payload: ProposedActionPayload = {
+    channel: task.input.channel,
+    contentType: task.input.contentType,
+    content: { body: contentAsset.body },
+    audience: null,
+    timing: { kind: "AS_SOON_AS_APPROVED" },
+  };
+  const payloadHash = hashPayload(payload);
+  const proposedAction = await tx.proposedAction.create({
+    data: { workspaceId, brandId: task.brand.id, contentAssetId: contentAsset.id, createdById: actor.userId, payload, payloadHash },
+  });
+  // The link is written as a plain foreign key, so a second resubmission breaks its
+  // unique index. A nested connect would instead unlink the earlier resubmission.
+  const approval = await tx.approval.create({ data: { proposedActionId: proposedAction.id, resubmissionOfId } });
+  await appendActivity(tx, {
+    workspaceId,
+    actor,
+    brandId: task.brand.id,
+    taskId: task.id,
+    approvalId: approval.id,
+    event: "PROPOSED_ACTION_SUBMITTED",
+    details: { payloadHash },
+  });
+  return approval;
 }
 
 // What deciding needs to know about the Approval's Proposed Action.
@@ -129,6 +177,8 @@ export async function getApproval(actor: Actor, workspaceId: string, approvalId:
     decidedBy: row.decidedBy?.name ?? null,
     decidedAt: row.decidedAt,
     comment: row.comment,
+    resubmissionOfId: row.resubmissionOfId,
+    resubmittedAsId: row.resubmittedAs?.id ?? null,
     proposedAction: {
       id: proposedAction.id,
       payload: verifyPayload(proposedAction.payload, proposedAction.payloadHash),
@@ -237,4 +287,30 @@ export async function reject(
     });
     return ok(undefined);
   });
+}
+
+// Any member can resubmit a Rejected Approval: its Content Asset, as it is now, becomes a
+// new Proposed Action with a new Pending Approval that links back to the rejected one.
+// The rejected records are never written. REJECTED is final, so the status read here
+// can't change before the write, and the unique link lets only one resubmission through,
+// even when two people resubmit at the same moment.
+export async function resubmit(actor: Actor, workspaceId: string, approvalId: string): Promise<Result<Approval>> {
+  const access = await requireRole(actor, workspaceId, "MEMBER");
+  if (!access.ok) return access;
+  const rejected = await db.approval.findFirst({
+    where: inWorkspace(approvalId, workspaceId),
+    include: {
+      proposedAction: { select: { contentAsset: { select: { id: true, body: true, task: { include: taskSummaryInclude } } } } },
+    },
+  });
+  if (!rejected) return fail("NOT_FOUND", APPROVAL_NOT_FOUND);
+  if (rejected.status !== "REJECTED") return fail("CONFLICT", NOT_REJECTED);
+  const { task, ...contentAsset } = rejected.proposedAction.contentAsset;
+  const proposal: Proposal = { workspaceId, task: toTaskSummary(task), contentAsset, resubmissionOfId: approvalId };
+  try {
+    return ok(await db.$transaction((tx) => proposeAction(tx, actor, proposal)));
+  } catch (error: unknown) {
+    if (isUniqueViolation(error)) return fail("CONFLICT", ALREADY_RESUBMITTED);
+    throw error;
+  }
 }

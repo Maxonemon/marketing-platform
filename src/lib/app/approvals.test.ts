@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { addTestMember, createTestApproval, createTestBrand, createTestReview, createTestUser, createTestWorkspace } from "@/test/fixtures";
 import { listActivity } from "./activity-log";
-import { approve, getApproval, listPendingApprovals, reject, type StartExecution } from "./approvals";
+import { approve, getApproval, listPendingApprovals, reject, resubmit, type StartExecution } from "./approvals";
 import { getReview, submitReview } from "./reviews";
 import { getTask } from "./tasks";
 
@@ -344,8 +344,102 @@ describe("the approval queue", () => {
   });
 });
 
+describe("resubmitting after a rejection", () => {
+  // Mia submits POST_TEXT and Adam rejects it.
+  async function setUpRejected() {
+    const setup = await setUpWorkspace();
+    const rejectedId = await createTestApproval(setup.mia, setup.workspaceId, setup.brandId, POST_TEXT);
+    const rejected = await reject(setup.adam, setup.workspaceId, rejectedId, { comment: "Add the roast date." });
+    if (!rejected.ok) throw new Error("Test setup: could not reject.");
+    return { ...setup, rejectedId };
+  }
+
+  it("leaves the rejected Approval and its Proposed Action unchanged", async () => {
+    const { mia, workspaceId, rejectedId } = await setUpRejected();
+    const before = await getApproval(mia, workspaceId, rejectedId);
+    if (!before.ok) throw new Error("expected the rejected Approval");
+
+    const result = await resubmit(mia, workspaceId, rejectedId);
+
+    if (!result.ok) throw new Error("expected the resubmit to succeed");
+    // Only the link to its resubmission is new; the rejected records read exactly as before.
+    expect(await getApproval(mia, workspaceId, rejectedId)).toEqual({
+      ok: true,
+      value: { ...before.value, resubmittedAsId: result.value.id },
+    });
+  });
+
+  it("proposes the Content Asset again as a new Pending Approval in the queue, and logs it", async () => {
+    const { mia, workspaceId, rejectedId } = await setUpRejected();
+
+    const result = await resubmit(mia, workspaceId, rejectedId);
+
+    if (!result.ok) throw new Error("expected the resubmit to succeed");
+    const resubmittedId = result.value.id;
+    expect(resubmittedId).not.toBe(rejectedId);
+    expect(await getApproval(mia, workspaceId, resubmittedId)).toMatchObject({
+      ok: true,
+      value: {
+        status: "PENDING",
+        decidedBy: null,
+        comment: null,
+        resubmissionOfId: rejectedId,
+        resubmittedAsId: null,
+        proposedAction: { payload: EXPECTED_PAYLOAD, payloadHash: EXPECTED_HASH, createdBy: "Mia" },
+        contentAsset: { variant: 1, body: POST_TEXT },
+      },
+    });
+    expect(await listPendingApprovals(mia, workspaceId)).toMatchObject({ ok: true, value: [{ id: resubmittedId }] });
+    expect(await listActivity(mia, workspaceId)).toMatchObject({
+      ok: true,
+      value: [
+        { event: "PROPOSED_ACTION_SUBMITTED", actorName: "Mia", approvalId: resubmittedId, details: { payloadHash: EXPECTED_HASH } },
+        { event: "APPROVAL_REJECTED", approvalId: rejectedId },
+        { event: "PROPOSED_ACTION_SUBMITTED", approvalId: rejectedId },
+        { event: "BRAND_CREATED" },
+      ],
+    });
+  });
+
+  it("happens once: a second resubmit of the same rejection is refused", async () => {
+    const { owner, mia, workspaceId, rejectedId } = await setUpRejected();
+    const first = await resubmit(mia, workspaceId, rejectedId);
+
+    const again = await resubmit(owner, workspaceId, rejectedId);
+
+    expect(again).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    if (!first.ok) throw new Error("expected the first resubmit to succeed");
+    expect(await listPendingApprovals(mia, workspaceId)).toMatchObject({ ok: true, value: [{ id: first.value.id }] });
+  });
+
+  it("happens once even when two people resubmit at the same moment", async () => {
+    const { owner, mia, workspaceId, rejectedId } = await setUpRejected();
+
+    const outcomes = await Promise.all([resubmit(mia, workspaceId, rejectedId), resubmit(owner, workspaceId, rejectedId)]);
+
+    expect(outcomes.filter(({ ok }) => ok)).toHaveLength(1);
+    expect(outcomes.filter(({ ok }) => !ok)).toMatchObject([{ error: { code: "CONFLICT" } }]);
+    const queue = await listPendingApprovals(mia, workspaceId);
+    if (!queue.ok) throw new Error("expected the queue");
+    expect(queue.value).toHaveLength(1);
+  });
+
+  it("is refused for a Pending or Approved Approval", async () => {
+    const { owner, mia, workspaceId, brandId } = await setUpWorkspace();
+    const [pendingId, approvedId] = await Promise.all([
+      createTestApproval(mia, workspaceId, brandId, POST_TEXT),
+      createTestApproval(mia, workspaceId, brandId, "Another post."),
+    ]);
+    await approve(owner, workspaceId, approvedId, recordingStartExecution().startExecution);
+
+    expect(await resubmit(mia, workspaceId, pendingId)).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    expect(await resubmit(mia, workspaceId, approvedId)).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    expect(await listPendingApprovals(mia, workspaceId)).toMatchObject({ ok: true, value: [{ id: pendingId }] });
+  });
+});
+
 describe("another Workspace's Approvals", () => {
-  it("can't be submitted, read, approved or rejected: each is not found, and nothing changes", async () => {
+  it("can't be submitted, read, approved, rejected or resubmitted: each is not found, and nothing changes", async () => {
     const { mia, workspaceId, brandId } = await setUpWorkspace();
     const { taskId, variantId } = await createTestReview(mia, workspaceId, brandId, POST_TEXT);
     const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
@@ -359,6 +453,7 @@ describe("another Workspace's Approvals", () => {
       expect(await getApproval(outsider, targetWorkspaceId, approvalId)).toMatchObject(notFound);
       expect(await approve(outsider, targetWorkspaceId, approvalId, startExecution)).toMatchObject(notFound);
       expect(await reject(outsider, targetWorkspaceId, approvalId, { comment: "Not mine." })).toMatchObject(notFound);
+      expect(await resubmit(outsider, targetWorkspaceId, approvalId)).toMatchObject(notFound);
     }
     expect(startedApprovalIds).toEqual([]);
     expect(await getTask(mia, workspaceId, taskId)).toMatchObject({ ok: true, value: { status: "IN_REVIEW" } });

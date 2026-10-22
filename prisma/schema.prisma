@@ -215,7 +215,9 @@ enum ApprovalStatus {
 
 // The human decision on one Proposed Action. It says nothing about whether the action
 // ran: each attempt is an Execution. `comment` is the Approver's reason, required to
-// reject (src/lib/app/approvals.ts).
+// reject (src/lib/app/approvals.ts). `resubmissionOfId` is set on an Approval that
+// resubmits a Rejected one; it is unique, so a rejection is resubmitted at most once,
+// and the Rejected Approval itself is never written again.
 model Approval {
   id               String         @id @default(cuid())
   proposedActionId String         @unique
@@ -223,11 +225,14 @@ model Approval {
   decidedById      String?
   decidedAt        DateTime?
   comment          String?
+  resubmissionOfId String?        @unique
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
   proposedAction ProposedAction     @relation(fields: [proposedActionId], references: [id], onDelete: Cascade)
   decidedBy      User?              @relation(fields: [decidedById], references: [id], onDelete: NoAction)
+  resubmissionOf Approval?          @relation("Resubmission", fields: [resubmissionOfId], references: [id], onDelete: NoAction)
+  resubmittedAs  Approval?          @relation("Resubmission")
   executions     Execution[]
   activity       ActivityLogEntry[]
 }

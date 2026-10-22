@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { Prisma, type Workspace, type WorkspaceRole } from "@/generated/prisma/client";
-import { db } from "@/lib/db";
+import type { Workspace, WorkspaceRole } from "@/generated/prisma/client";
+import { db, isUniqueViolation } from "@/lib/db";
 import { SLUG_MAX_LENGTH, SLUG_MIN_LENGTH, SLUG_PATTERN, WORKSPACE_NAME_MAX_LENGTH } from "@/lib/limits";
 import { requireRole, WORKSPACE_NOT_FOUND, type Actor } from "@/lib/permissions";
 import { fail, ok, type Result } from "./result";
@@ -50,10 +50,6 @@ export async function createWorkspace(actor: Actor, input: CreateWorkspaceInput)
     if (isUniqueViolation(error)) return fail("CONFLICT", SLUG_TAKEN, { slug: [SLUG_TAKEN] });
     throw error;
   }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 export async function getWorkspace(actor: Actor, workspaceId: string): Promise<Result<WorkspaceSummary>> {
