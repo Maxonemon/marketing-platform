@@ -7,6 +7,7 @@ import type { WorkspaceSummary } from "@/lib/app/workspaces";
 import { CHANNEL_LABELS, CONTENT_TYPE_LABELS } from "@/lib/content-options";
 import type { ProposedActionPayload } from "@/lib/workflows/proposed-action-payload";
 import { requireWorkspace } from "../../require-workspace";
+import { RuleViolations } from "../../rule-violations";
 import { taskTitle } from "../../tasks/task-display";
 import { Timestamp } from "../../timestamp";
 import { approveAction, rejectAction, resubmitAction } from "../actions";
@@ -87,6 +88,11 @@ async function ApprovalView({ params }: ApprovalPageProps) {
             The stored Proposed Action no longer matches its hash, so it will never be executed.
           </p>
         )}
+      </section>
+      <section className="flex flex-col gap-2">
+        <h2 className="text-lg font-semibold">Brand rules</h2>
+        <p className="text-sm text-zinc-500">Checked when the Variant was written. Warnings only: you decide.</p>
+        <RuleViolations violations={approval.contentAsset.violations} />
       </section>
       {approval.status === "PENDING" && <Decision approval={approval} workspace={workspace} />}
       {approval.status === "REJECTED" && <Resubmission approval={approval} workspace={workspace} />}

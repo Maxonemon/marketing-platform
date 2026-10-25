@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { getReview } from "@/lib/app/reviews";
 import { requireWorkspace } from "../../../require-workspace";
+import { RuleViolations } from "../../../rule-violations";
 import { submitReviewAction } from "../../actions";
 import { taskTitle } from "../../task-display";
 import { SubmitVariantForm } from "./submit-variant-form";
@@ -38,10 +39,11 @@ async function ReviewView({ params }: ReviewPageProps) {
         <p className="wrap-break-word whitespace-pre-wrap text-zinc-500">Brief: {task.input.brief}</p>
         <p className="text-zinc-500">
           Pick the Variant to publish. Submitting turns it into a Proposed Action that an Owner or Admin must approve.
+          Brand rule warnings don&apos;t stop you submitting; the Approver sees them too.
         </p>
       </div>
       <ol className="grid gap-4 md:grid-cols-3">
-        {variants.map(({ id, variant, subject, body }) => (
+        {variants.map(({ id, variant, subject, body, violations }) => (
           <li key={id} className="flex min-w-0 flex-col gap-2 rounded border border-zinc-500/30 p-3 text-sm">
             <h2 className="font-semibold">Variant {variant}</h2>
             {subject && (
@@ -50,6 +52,7 @@ async function ReviewView({ params }: ReviewPageProps) {
               </p>
             )}
             <p className="flex-1 wrap-break-word whitespace-pre-wrap">{body}</p>
+            <RuleViolations violations={violations} />
             <SubmitVariantForm action={submitAction} contentAssetId={id} variant={variant} />
           </li>
         ))}
