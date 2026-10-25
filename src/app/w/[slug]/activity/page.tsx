@@ -54,6 +54,7 @@ const EVENT_TEXT: Record<ActivityEntry["event"], string> = {
   PROPOSED_ACTION_SUBMITTED: "submitted content for approval for",
   APPROVAL_APPROVED: "approved a Proposed Action for",
   APPROVAL_REJECTED: "rejected a Proposed Action for",
+  APPROVAL_SUPERSEDED: "replaced a Proposed Action with an edited one for",
   EXECUTION_SUCCEEDED: "executed an approved Proposed Action for",
 };
 
@@ -84,6 +85,11 @@ function ActivityItem({ entry, workspaceSlug }: ActivityItemProps) {
         <p className="wrap-break-word whitespace-pre-wrap">
           <q>{entry.details.comment}</q>
         </p>
+      )}
+      {entry.event === "APPROVAL_SUPERSEDED" && (
+        <Link href={`/w/${workspaceSlug}/approvals/${entry.details.supersededById}`} className="underline">
+          View the new Approval
+        </Link>
       )}
       {entry.event === "TASK_FAILED" && (
         <p className="wrap-break-word">

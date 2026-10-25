@@ -19,6 +19,9 @@ export interface ApprovalDetail {
   // The Rejected Approval this one resubmits, and the Approval this one was resubmitted as.
   resubmissionOfId: string | null;
   resubmittedAsId: string | null;
+  // The newer Approval this one was superseded by, and the older one this supersedes.
+  supersededById: string | null;
+  supersedesId: string | null;
   // Exactly what would be executed, and its hash.
   proposedAction: {
     id: string;
@@ -89,6 +92,7 @@ export type RejectInput = z.input<typeof rejectSchema>;
 const approvalDetailInclude = {
   decidedBy: { select: { name: true } },
   resubmittedAs: { select: { id: true } },
+  supersedes: { select: { id: true } },
   executions: {
     select: { id: true, attempt: true, status: true, error: true, startedAt: true, finishedAt: true },
     orderBy: { attempt: "asc" },
@@ -153,6 +157,14 @@ export async function lockApproval(tx: Prisma.TransactionClient, approvalId: str
   return locked.length === 1;
 }
 
+// A Pending Approval can be superseded, and so can an Approved one until an attempt
+// starts: once it is going out, or has gone out, that version can't be replaced. A failed
+// attempt sent nothing, so it doesn't count.
+export function canBeSuperseded(status: ApprovalStatus, executions: readonly { status: ExecutionStatus }[]): boolean {
+  if (status === "PENDING") return true;
+  return status === "APPROVED" && executions.every((execution) => execution.status === "FAILED");
+}
+
 // What deciding needs to know about the Approval's Proposed Action.
 function findToDecide(tx: Prisma.TransactionClient, workspaceId: string, approvalId: string) {
   return tx.approval.findFirst({
@@ -196,6 +208,8 @@ export async function getApproval(actor: Actor, workspaceId: string, approvalId:
     comment: row.comment,
     resubmissionOfId: row.resubmissionOfId,
     resubmittedAsId: row.resubmittedAs?.id ?? null,
+    supersededById: row.supersededById,
+    supersedesId: row.supersedes?.id ?? null,
     proposedAction: {
       id: proposedAction.id,
       payload: verifyPayload(proposedAction.payload, proposedAction.payloadHash),

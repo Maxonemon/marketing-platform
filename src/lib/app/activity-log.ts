@@ -29,6 +29,11 @@ const activitySchema = z.discriminatedUnion("event", [
   z.object({ event: z.literal("APPROVAL_APPROVED"), details: z.object({ payloadHash: z.string() }) }),
   // The comment is the Approver's reason, written for the author to read.
   z.object({ event: z.literal("APPROVAL_REJECTED"), details: z.object({ payloadHash: z.string(), comment: z.string() }) }),
+  // The hash of the superseded Proposed Action, and the Approval that replaced it.
+  z.object({
+    event: z.literal("APPROVAL_SUPERSEDED"),
+    details: z.object({ payloadHash: z.string(), supersededById: z.string() }),
+  }),
   z.object({ event: z.literal("EXECUTION_SUCCEEDED"), details: z.object({ channel: z.enum(CHANNELS), attempt: z.number() }) }),
 ]);
 

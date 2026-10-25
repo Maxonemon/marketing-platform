@@ -235,7 +235,9 @@ enum ApprovalStatus {
 // ran: each attempt is an Execution. `comment` is the Approver's reason, required to
 // reject (src/lib/app/approvals.ts). `resubmissionOfId` is set on an Approval that
 // resubmits a Rejected one; it is unique, so a rejection is resubmitted at most once,
-// and the Rejected Approval itself is never written again.
+// and the Rejected Approval itself is never written again. `supersededById` is set, with
+// the SUPERSEDED status, on an Approval replaced by a newer one after a material change
+// (src/lib/app/content-assets.ts); it points to the newer Approval.
 model Approval {
   id               String         @id @default(cuid())
   proposedActionId String         @unique
@@ -244,6 +246,7 @@ model Approval {
   decidedAt        DateTime?
   comment          String?
   resubmissionOfId String?        @unique
+  supersededById   String?        @unique
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -251,6 +254,8 @@ model Approval {
   decidedBy      User?              @relation(fields: [decidedById], references: [id], onDelete: NoAction)
   resubmissionOf Approval?          @relation("Resubmission", fields: [resubmissionOfId], references: [id], onDelete: NoAction)
   resubmittedAs  Approval?          @relation("Resubmission")
+  supersededBy   Approval?          @relation("Supersession", fields: [supersededById], references: [id], onDelete: NoAction)
+  supersedes     Approval?          @relation("Supersession")
   executions     Execution[]
   activity       ActivityLogEntry[]
 }
@@ -288,6 +293,7 @@ enum ActivityEvent {
   PROPOSED_ACTION_SUBMITTED
   APPROVAL_APPROVED
   APPROVAL_REJECTED
+  APPROVAL_SUPERSEDED
   EXECUTION_SUCCEEDED
 }
 
