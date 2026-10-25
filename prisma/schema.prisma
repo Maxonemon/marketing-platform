@@ -110,15 +110,21 @@ model WorkspaceMember {
 }
 
 model Brand {
-  id          String   @id @default(cuid())
-  workspaceId String
-  name        String
-  websiteUrl  String?
-  industry    String?
-  audience    String?
-  voice       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  workspaceId         String
+  name                String
+  websiteUrl          String?
+  industry            String?
+  audience            String?
+  voice               String?
+  // The content agent uses the offers and keywords; the rules are checked on each Variant
+  // (src/lib/brand-rules.ts).
+  offers              String[] @default([])
+  keywords            String[] @default([])
+  prohibitedPhrases   String[] @default([])
+  requiredDisclaimers String[] @default([])
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tasks           Task[]

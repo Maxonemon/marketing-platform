@@ -25,7 +25,9 @@ async function BrandSettings({ params }: BrandSettingsPageProps) {
   const { actor, workspace } = await requireWorkspace(slug);
   const result = await getBrand(actor, workspace.id, brandId);
   if (!result.ok) notFound();
-  const { id, name, websiteUrl, industry, audience, voice } = result.value;
+  const { id, name, websiteUrl, industry, audience, voice, offers, keywords, prohibitedPhrases, requiredDisclaimers } =
+    result.value;
+  const lines = (entries: string[]): string => entries.join("\n");
   // Saving accepts only http(s) addresses; checked again here so a row written another
   // way (a seed script, manual SQL) can never become a javascript: link.
   const websiteLink = websiteUrl && /^https?:\/\//i.test(websiteUrl) ? websiteUrl : null;
@@ -52,7 +54,17 @@ async function BrandSettings({ params }: BrandSettingsPageProps) {
         <h2 className="text-lg font-semibold">Settings</h2>
         <BrandForm
           action={updateBrandAction.bind(null, workspace.id, id)}
-          initialValues={{ name, websiteUrl, industry, audience, voice }}
+          initialValues={{
+            name,
+            websiteUrl,
+            industry,
+            audience,
+            voice,
+            offers: lines(offers),
+            keywords: lines(keywords),
+            prohibitedPhrases: lines(prohibitedPhrases),
+            requiredDisclaimers: lines(requiredDisclaimers),
+          }}
           submitLabel="Save settings"
         />
       </section>

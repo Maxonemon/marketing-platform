@@ -9,10 +9,13 @@ import { ok, type Result } from "./result";
 // The Activity Log page shows this many of the newest entries. Filters come in ticket 14.
 export const ACTIVITY_LOG_PAGE_SIZE = 100;
 
+// A text setting changes from one string (or null) to another; a list setting from one
+// list of entries to another.
+const brandSettingValueSchema = z.union([z.string(), z.array(z.string())]).nullable();
 const brandFieldChangeSchema = z.object({
   field: z.enum(BRAND_FIELDS),
-  from: z.string().nullable(),
-  to: z.string().nullable(),
+  from: brandSettingValueSchema,
+  to: brandSettingValueSchema,
 });
 
 // What `details` holds for each event type. Every member can read every entry, so

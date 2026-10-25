@@ -4,10 +4,14 @@ import { useActionState } from "react";
 import {
   BRAND_AUDIENCE_MAX_LENGTH,
   BRAND_INDUSTRY_MAX_LENGTH,
+  BRAND_LIST_ITEM_MAX_LENGTH,
+  BRAND_LIST_MAX_ITEMS,
   BRAND_NAME_MAX_LENGTH,
   BRAND_VOICE_MAX_LENGTH,
   BRAND_WEBSITE_MAX_LENGTH,
 } from "@/lib/limits";
+import type { BrandListField } from "@/lib/app/brand-fields";
+import type { FieldErrors } from "@/lib/app/result";
 import { Field, INPUT_CLASS } from "../form-field";
 import type { BrandFormAction, BrandFormState, BrandFormValues } from "./actions";
 
@@ -50,6 +54,20 @@ export function BrandForm({ action, initialValues = {}, submitLabel }: BrandForm
       <Field label="Voice (optional): how the Brand sounds, e.g. warm, plain words, no jargon" errors={errors.voice}>
         <textarea name="voice" rows={4} maxLength={BRAND_VOICE_MAX_LENGTH} defaultValue={values.voice ?? ""} className={INPUT_CLASS} />
       </Field>
+      <ListField field="offers" label="Offers (optional): what the Brand sells or promotes" values={values} errors={errors} />
+      <ListField field="keywords" label="Keywords (optional): words the content should use" values={values} errors={errors} />
+      <ListField
+        field="prohibitedPhrases"
+        label="Prohibited words or phrases (optional): flagged when a Variant uses them"
+        values={values}
+        errors={errors}
+      />
+      <ListField
+        field="requiredDisclaimers"
+        label="Required disclaimers (optional): flagged when a Variant leaves one out"
+        values={values}
+        errors={errors}
+      />
       {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
       {state.saved && <p role="status" className="text-sm text-green-600">Saved.</p>}
       <button
@@ -60,5 +78,27 @@ export function BrandForm({ action, initialValues = {}, submitLabel }: BrandForm
         {submitLabel}
       </button>
     </form>
+  );
+}
+
+interface ListFieldProps {
+  field: BrandListField;
+  label: string;
+  values: BrandFormValues;
+  errors: FieldErrors;
+}
+
+// A list setting, typed one entry per line.
+function ListField({ field, label, values, errors }: ListFieldProps) {
+  return (
+    <Field label={`${label}. One per line, up to ${BRAND_LIST_MAX_ITEMS}.`} errors={errors[field]}>
+      <textarea
+        name={field}
+        rows={3}
+        maxLength={BRAND_LIST_MAX_ITEMS * (BRAND_LIST_ITEM_MAX_LENGTH + 1)}
+        defaultValue={values[field] ?? ""}
+        className={INPUT_CLASS}
+      />
+    </Field>
   );
 }

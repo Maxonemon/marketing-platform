@@ -106,6 +106,10 @@ const FIELD_LABELS: Record<BrandField, string> = {
   industry: "Industry",
   audience: "Audience",
   voice: "Voice",
+  offers: "Offers",
+  keywords: "Keywords",
+  prohibitedPhrases: "Prohibited words or phrases",
+  requiredDisclaimers: "Required disclaimers",
 };
 
 interface ChangeListProps {
@@ -119,7 +123,7 @@ function ChangeList({ changes }: ChangeListProps) {
         <Fragment key={field}>
           <dt className="font-medium">{FIELD_LABELS[field]}</dt>
           <dd className="wrap-break-word whitespace-pre-wrap">
-            <ChangedValue text={from} /> → <ChangedValue text={to} />
+            <ChangedValue value={from} /> → <ChangedValue value={to} />
           </dd>
         </Fragment>
       ))}
@@ -128,9 +132,17 @@ function ChangeList({ changes }: ChangeListProps) {
 }
 
 interface ChangedValueProps {
-  text: string | null;
+  value: BrandFieldChange["from"];
 }
 
-function ChangedValue({ text }: ChangedValueProps) {
-  return text === null ? <em className="text-zinc-500">empty</em> : <q>{text}</q>;
+// A text setting, or a list setting's entries one after another.
+function ChangedValue({ value }: ChangedValueProps) {
+  if (value === null || value.length === 0) return <em className="text-zinc-500">empty</em>;
+  if (typeof value === "string") return <q>{value}</q>;
+  return value.map((entry, index) => (
+    <Fragment key={index}>
+      {index > 0 && ", "}
+      <q>{entry}</q>
+    </Fragment>
+  ));
 }

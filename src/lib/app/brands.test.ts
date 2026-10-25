@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BRAND_VOICE_MAX_LENGTH } from "@/lib/limits";
+import { BRAND_LIST_ITEM_MAX_LENGTH, BRAND_LIST_MAX_ITEMS, BRAND_VOICE_MAX_LENGTH } from "@/lib/limits";
 import { addTestMember, createTestBrand, createTestUser, createTestWorkspace } from "@/test/fixtures";
 import { listActivity } from "./activity-log";
 import { createBrand, getBrand, listBrands, updateBrand } from "./brands";
@@ -72,6 +72,46 @@ describe("createBrand", () => {
     },
   );
 
+  it("stores offers, keywords, prohibited phrases and required disclaimers, trimmed, without blanks or repeats", async () => {
+    const owner = await createTestUser("Olivia");
+    const workspaceId = await createTestWorkspace(owner, "acme-agency");
+
+    const created = await createBrand(owner, workspaceId, {
+      name: "Northwind Coffee",
+      offers: ["  Free shipping over $40  ", "", "Free shipping over $40"],
+      keywords: ["single origin", "SINGLE ORIGIN", "fresh roast"],
+      prohibitedPhrases: ["guaranteed", "   "],
+      requiredDisclaimers: ["Offer ends Sunday."],
+    });
+
+    expect(created).toMatchObject({
+      ok: true,
+      value: {
+        offers: ["Free shipping over $40"],
+        keywords: ["single origin", "fresh roast"],
+        prohibitedPhrases: ["guaranteed"],
+        requiredDisclaimers: ["Offer ends Sunday."],
+      },
+    });
+  });
+
+  it("refuses too many entries, or an entry that is too long, with a message for that list", async () => {
+    const owner = await createTestUser("Olivia");
+    const workspaceId = await createTestWorkspace(owner, "acme-agency");
+
+    const result = await createBrand(owner, workspaceId, {
+      name: "Northwind Coffee",
+      keywords: Array.from({ length: BRAND_LIST_MAX_ITEMS + 1 }, (_, index) => `keyword ${index}`),
+      requiredDisclaimers: ["x".repeat(BRAND_LIST_ITEM_MAX_LENGTH + 1)],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT", fieldErrors: { keywords: [expect.any(String)], requiredDisclaimers: [expect.any(String)] } },
+    });
+    expect(await listBrands(owner, workspaceId)).toEqual({ ok: true, value: [] });
+  });
+
   it("trims the settings and stores blank optional fields as empty", async () => {
     const owner = await createTestUser("Olivia");
     const workspaceId = await createTestWorkspace(owner, "acme-agency");
@@ -80,7 +120,17 @@ describe("createBrand", () => {
 
     expect(created).toMatchObject({
       ok: true,
-      value: { name: "Northwind Coffee", websiteUrl: null, industry: null, audience: null, voice: null },
+      value: {
+        name: "Northwind Coffee",
+        websiteUrl: null,
+        industry: null,
+        audience: null,
+        voice: null,
+        offers: [],
+        keywords: [],
+        prohibitedPhrases: [],
+        requiredDisclaimers: [],
+      },
     });
   });
 });
@@ -143,12 +193,45 @@ describe("updateBrand", () => {
     });
   });
 
+  it("logs a changed list with its old and new entries", async () => {
+    const owner = await createTestUser("Olivia");
+    const workspaceId = await createTestWorkspace(owner, "acme-agency");
+    const brandId = await createTestBrand(owner, workspaceId, { ...NORTHWIND, prohibitedPhrases: ["guaranteed"] });
+
+    const updated = await updateBrand(owner, workspaceId, brandId, {
+      ...NORTHWIND,
+      prohibitedPhrases: ["guaranteed", "best in the world"],
+      requiredDisclaimers: ["Offer ends Sunday."],
+    });
+
+    expect(updated).toMatchObject({ ok: true, value: { prohibitedPhrases: ["guaranteed", "best in the world"] } });
+    expect(await listActivity(owner, workspaceId)).toMatchObject({
+      ok: true,
+      value: [
+        {
+          event: "BRAND_UPDATED",
+          details: {
+            changes: [
+              { field: "prohibitedPhrases", from: ["guaranteed"], to: ["guaranteed", "best in the world"] },
+              { field: "requiredDisclaimers", from: [], to: ["Offer ends Sunday."] },
+            ],
+          },
+        },
+        { event: "BRAND_CREATED" },
+      ],
+    });
+  });
+
   it("logs nothing when the settings did not change", async () => {
     const owner = await createTestUser("Olivia");
     const workspaceId = await createTestWorkspace(owner, "acme-agency");
-    const brandId = await createTestBrand(owner, workspaceId, NORTHWIND);
+    const brandId = await createTestBrand(owner, workspaceId, { ...NORTHWIND, keywords: ["single origin"] });
 
-    const updated = await updateBrand(owner, workspaceId, brandId, { ...NORTHWIND, name: " Northwind Coffee " });
+    const updated = await updateBrand(owner, workspaceId, brandId, {
+      ...NORTHWIND,
+      name: " Northwind Coffee ",
+      keywords: ["single origin "],
+    });
 
     expect(updated).toMatchObject({ ok: true, value: NORTHWIND });
     expect(await listActivity(owner, workspaceId)).toMatchObject({ ok: true, value: [{ event: "BRAND_CREATED" }] });

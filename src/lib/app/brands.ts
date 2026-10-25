@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import {
   BRAND_AUDIENCE_MAX_LENGTH,
   BRAND_INDUSTRY_MAX_LENGTH,
+  BRAND_LIST_ITEM_MAX_LENGTH,
+  BRAND_LIST_MAX_ITEMS,
   BRAND_NAME_MAX_LENGTH,
   BRAND_VOICE_MAX_LENGTH,
   BRAND_WEBSITE_MAX_LENGTH,
@@ -27,6 +29,20 @@ function optionalText(maxLength: number) {
     .transform((value) => value || null);
 }
 
+// A list of short entries: each is trimmed, blanks are dropped, and an entry that repeats
+// an earlier one (ignoring case) is dropped too, since the rule checks ignore case.
+const listSchema = z
+  .array(z.string().trim().max(BRAND_LIST_ITEM_MAX_LENGTH, `Keep each entry to at most ${BRAND_LIST_ITEM_MAX_LENGTH} characters.`))
+  .optional()
+  .transform((entries = []) => withoutRepeats(entries.filter(Boolean)))
+  .refine((entries) => entries.length <= BRAND_LIST_MAX_ITEMS, `Use at most ${BRAND_LIST_MAX_ITEMS} entries.`);
+
+function withoutRepeats(entries: string[]): string[] {
+  return entries.filter(
+    (entry, index) => entries.findIndex((other) => other.toLowerCase() === entry.toLowerCase()) === index,
+  );
+}
+
 // http(s) on a real domain only: the website is rendered as a link, so a javascript:
 // address must never get through.
 const webAddressSchema = z.httpUrl();
@@ -41,6 +57,10 @@ const brandSettingsSchema = z.object({
   industry: optionalText(BRAND_INDUSTRY_MAX_LENGTH),
   audience: optionalText(BRAND_AUDIENCE_MAX_LENGTH),
   voice: optionalText(BRAND_VOICE_MAX_LENGTH),
+  offers: listSchema,
+  keywords: listSchema,
+  prohibitedPhrases: listSchema,
+  requiredDisclaimers: listSchema,
 } satisfies Record<BrandField, z.ZodType>);
 
 export type BrandSettingsInput = z.input<typeof brandSettingsSchema>;
@@ -113,9 +133,19 @@ export async function updateBrand(
 }
 
 function changesBetween(before: BrandSettings, after: BrandSettings): BrandFieldChange[] {
-  return BRAND_FIELDS.filter((field) => before[field] !== after[field]).map((field) => ({
+  return BRAND_FIELDS.filter((field) => !isSameSetting(before[field], after[field])).map((field) => ({
     field,
     from: before[field],
     to: after[field],
   }));
+}
+
+type SettingValue = BrandSettings[BrandField];
+
+// Lists are the same when they hold the same entries in the same order.
+function isSameSetting(before: SettingValue, after: SettingValue): boolean {
+  if (Array.isArray(before) && Array.isArray(after)) {
+    return before.length === after.length && before.every((entry, index) => entry === after[index]);
+  }
+  return before === after;
 }

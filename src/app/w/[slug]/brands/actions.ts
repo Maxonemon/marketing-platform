@@ -2,11 +2,13 @@
 
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
+import type { BrandField } from "@/lib/app/brand-fields";
 import { createBrand, updateBrand, type BrandSettingsInput } from "@/lib/app/brands";
 import type { AppError, FieldErrors } from "@/lib/app/result";
 import { requireActor } from "@/lib/session";
 
-export type BrandFormValues = { [Field in keyof BrandSettingsInput]?: string | null };
+// As typed in the form: a list setting is one entry per line.
+export type BrandFormValues = { [Field in BrandField]?: string | null };
 
 export interface BrandFormState {
   message?: string;
@@ -29,8 +31,8 @@ export async function createBrandAction(
   formData: FormData,
 ): Promise<BrandFormState> {
   const actor = await requireActor();
-  const values = readSettings(formData);
-  const result = await createBrand(actor, workspaceId, values);
+  const values = readForm(formData);
+  const result = await createBrand(actor, workspaceId, toSettings(values));
   if (!result.ok) return failedState(result.error, values);
   redirect(`/w/${workspaceSlug}/brands/${result.value.id}`);
 }
@@ -42,21 +44,38 @@ export async function updateBrandAction(
   formData: FormData,
 ): Promise<BrandFormState> {
   const actor = await requireActor();
-  const values = readSettings(formData);
-  const result = await updateBrand(actor, workspaceId, brandId, values);
+  const values = readForm(formData);
+  const result = await updateBrand(actor, workspaceId, brandId, toSettings(values));
   if (!result.ok) return failedState(result.error, values);
   refresh();
   return { saved: true };
 }
 
-function readSettings(formData: FormData): Required<BrandSettingsInput> {
-  const text = (field: keyof BrandSettingsInput): string => String(formData.get(field) ?? "");
+function readForm(formData: FormData): Record<BrandField, string> {
+  const text = (field: BrandField): string => String(formData.get(field) ?? "");
   return {
     name: text("name"),
     websiteUrl: text("websiteUrl"),
     industry: text("industry"),
     audience: text("audience"),
     voice: text("voice"),
+    offers: text("offers"),
+    keywords: text("keywords"),
+    prohibitedPhrases: text("prohibitedPhrases"),
+    requiredDisclaimers: text("requiredDisclaimers"),
+  };
+}
+
+// Blank lines and surrounding spaces are dropped by the settings schema.
+function toSettings(form: ReturnType<typeof readForm>): Required<BrandSettingsInput> {
+  const { offers, keywords, prohibitedPhrases, requiredDisclaimers, ...text } = form;
+  const lines = (value: string): string[] => value.split(/\r?\n/);
+  return {
+    ...text,
+    offers: lines(offers),
+    keywords: lines(keywords),
+    prohibitedPhrases: lines(prohibitedPhrases),
+    requiredDisclaimers: lines(requiredDisclaimers),
   };
 }
 

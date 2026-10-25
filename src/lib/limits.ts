@@ -15,6 +15,9 @@ export const BRAND_WEBSITE_MAX_LENGTH = 2048;
 export const BRAND_INDUSTRY_MAX_LENGTH = 80;
 export const BRAND_AUDIENCE_MAX_LENGTH = 1000;
 export const BRAND_VOICE_MAX_LENGTH = 2000;
+// Each Brand list: offers, keywords, prohibited phrases and required disclaimers.
+export const BRAND_LIST_MAX_ITEMS = 30;
+export const BRAND_LIST_ITEM_MAX_LENGTH = 300;
 
 export const CONTENT_BRIEF_MAX_LENGTH = 1000;
 
