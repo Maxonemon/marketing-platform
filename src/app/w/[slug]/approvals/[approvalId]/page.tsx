@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import type { ApprovalStatus, ExecutionStatus } from "@/generated/prisma/client";
+import type { ExecutionStatus } from "@/generated/prisma/client";
 import { getApproval, type ApprovalDetail } from "@/lib/app/approvals";
 import type { WorkspaceSummary } from "@/lib/app/workspaces";
 import { CHANNEL_LABELS, CONTENT_TYPE_LABELS } from "@/lib/content-options";
@@ -11,17 +11,10 @@ import { RuleViolations } from "../../rule-violations";
 import { taskTitle } from "../../tasks/task-display";
 import { Timestamp } from "../../timestamp";
 import { approveAction, rejectAction, resubmitAction } from "../actions";
+import { APPROVAL_STATUS_LABELS } from "../approval-display";
 import { ApproveForm } from "./approve-form";
 import { RejectForm } from "./reject-form";
 import { ResubmitForm } from "./resubmit-form";
-
-const APPROVAL_STATUS_LABELS: Record<ApprovalStatus, string> = {
-  PENDING: "Pending",
-  APPROVED: "Approved",
-  REJECTED: "Rejected",
-  EXPIRED: "Expired",
-  SUPERSEDED: "Superseded",
-};
 
 const EXECUTION_STATUS_LABELS: Record<ExecutionStatus, string> = {
   STARTED: "Started",
@@ -72,6 +65,16 @@ async function ApprovalView({ params }: ApprovalPageProps) {
             Comment: <q>{approval.comment}</q>
           </p>
         )}
+        {approval.supersededById && (
+          <Link href={`/w/${workspace.slug}/approvals/${approval.supersededById}`} className="underline">
+            The content was edited after this was submitted, so it will never be executed: view the new Approval
+          </Link>
+        )}
+        {approval.supersedesId && (
+          <Link href={`/w/${workspace.slug}/approvals/${approval.supersedesId}`} className="underline">
+            This replaces an earlier version of the content: view it
+          </Link>
+        )}
         {approval.resubmissionOfId && (
           <Link href={`/w/${workspace.slug}/approvals/${approval.resubmissionOfId}`} className="underline">
             This resubmits a rejected Approval: view it
@@ -80,7 +83,12 @@ async function ApprovalView({ params }: ApprovalPageProps) {
       </div>
       <section className="flex flex-col gap-2">
         <h2 className="text-lg font-semibold">Proposed Action</h2>
-        <p className="text-sm text-zinc-500">Exactly what would be executed. It never changes: an edit needs a new approval.</p>
+        <p className="text-sm text-zinc-500">
+          Exactly what would be executed. It never changes: an edit makes a new Proposed Action that needs a new approval.{" "}
+          <Link href={`/w/${workspace.slug}/content/${approval.contentAsset.id}`} className="underline">
+            Edit the content or see its history
+          </Link>
+        </p>
         {proposedAction.payload ? (
           <ProposedActionFields payload={proposedAction.payload} payloadHash={proposedAction.payloadHash} />
         ) : (
@@ -91,7 +99,9 @@ async function ApprovalView({ params }: ApprovalPageProps) {
       </section>
       <section className="flex flex-col gap-2">
         <h2 className="text-lg font-semibold">Brand rules</h2>
-        <p className="text-sm text-zinc-500">Checked when the Variant was written. Warnings only: you decide.</p>
+        <p className="text-sm text-zinc-500">
+          Checked on the Content Asset&apos;s text as it was last written or edited. Warnings only: you decide.
+        </p>
         <RuleViolations violations={approval.contentAsset.violations} />
       </section>
       {approval.status === "PENDING" && <Decision approval={approval} workspace={workspace} />}
@@ -197,7 +207,7 @@ function ProposedActionFields({ payload, payloadHash }: ProposedActionFieldsProp
       <dt className="font-medium">Content type</dt>
       <dd>{CONTENT_TYPE_LABELS[payload.contentType]}</dd>
       <dt className="font-medium">Audience</dt>
-      <dd>{payload.audience ?? <em className="text-zinc-500">None: the Channel takes none</em>}</dd>
+      <dd className="wrap-break-word">{payload.audience ?? <em className="text-zinc-500">None</em>}</dd>
       <dt className="font-medium">Timing</dt>
       <dd>{TIMING_LABELS[payload.timing.kind]}</dd>
       {payload.content.subject && (
