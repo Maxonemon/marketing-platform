@@ -61,7 +61,7 @@ describe("submitting a Review", () => {
         decidedBy: null,
         decidedAt: null,
         proposedAction: { payload: EXPECTED_PAYLOAD, payloadHash: EXPECTED_HASH, createdBy: "Mia" },
-        contentAsset: { id: variantId, variant: 1, body: POST_TEXT },
+        contentAsset: { id: variantId, variant: 1, body: POST_TEXT, violations: [] },
         task: { id: taskId, brand: { id: brandId, name: "Northwind Coffee" } },
         executions: [],
       },
@@ -100,6 +100,33 @@ describe("submitting a Review", () => {
       value: {
         proposedAction: {
           payload: { contentType: "EMAIL", content: { subject: "Welcome 2", body: "Thanks for joining us (2)." } },
+        },
+      },
+    });
+  });
+
+  it("is allowed for a Variant that breaks the Brand rules, and the Approval shows the violations", async () => {
+    const { owner, mia, workspaceId } = await setUpWorkspace();
+    const brandId = await createTestBrand(owner, workspaceId, {
+      name: "Southwind Tea",
+      prohibitedPhrases: ["guaranteed"],
+      requiredDisclaimers: ["Offer ends Sunday."],
+    });
+    const { taskId, variantId } = await createTestReview(mia, workspaceId, brandId, "Guaranteed to calm you down.");
+
+    const submitted = await submitReview(mia, workspaceId, taskId, { contentAssetId: variantId });
+
+    if (!submitted.ok) throw new Error("expected the submit to succeed");
+    expect(await getApproval(owner, workspaceId, submitted.value.id)).toMatchObject({
+      ok: true,
+      value: {
+        status: "PENDING",
+        contentAsset: {
+          id: variantId,
+          violations: [
+            { kind: "PROHIBITED_PHRASE", phrase: "guaranteed" },
+            { kind: "MISSING_DISCLAIMER", disclaimer: "Offer ends Sunday." },
+          ],
         },
       },
     });

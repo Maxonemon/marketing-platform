@@ -182,14 +182,17 @@ model Task {
 
 // One Variant written by a content Task: an editable draft, never approved directly.
 // `subject` is set only for content types that have one (an Email's subject line).
+// `ruleViolations` are the Brand rules its text broke when it was written, parsed by
+// src/lib/brand-rules.ts: warnings for the Review and the Approver, never a block.
 model ContentAsset {
-  id        String   @id @default(cuid())
-  taskId    String
-  variant   Int
-  subject   String?
-  body      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(cuid())
+  taskId         String
+  variant        Int
+  subject        String?
+  body           String
+  ruleViolations Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   task            Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
   proposedActions ProposedAction[]

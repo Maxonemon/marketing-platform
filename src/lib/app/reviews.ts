@@ -5,14 +5,9 @@ import { requireRole, type Actor } from "@/lib/permissions";
 import { proposeAction } from "./approvals";
 import { fail, ok, type Result } from "./result";
 import { taskSummaryInclude, toTaskSummary, type TaskSummary } from "./tasks";
+import { reviewVariantSelect, toReviewVariant, type ReviewVariant } from "./variants";
 
-export interface ReviewVariant {
-  id: string;
-  variant: number;
-  // The subject line, for content types that have one.
-  subject: string | null;
-  body: string;
-}
+export type { ReviewVariant };
 
 export interface Review {
   task: TaskSummary;
@@ -35,11 +30,11 @@ export async function getReview(actor: Actor, workspaceId: string, taskId: strin
     where: { id: taskId, workspaceId, status: "IN_REVIEW" },
     include: {
       ...taskSummaryInclude,
-      contentAssets: { select: { id: true, variant: true, subject: true, body: true }, orderBy: { variant: "asc" } },
+      contentAssets: { select: reviewVariantSelect, orderBy: { variant: "asc" } },
     },
   });
   if (!row) return fail("NOT_FOUND", REVIEW_NOT_FOUND);
-  return ok({ task: toTaskSummary(row), variants: row.contentAssets });
+  return ok({ task: toTaskSummary(row), variants: row.contentAssets.map(toReviewVariant) });
 }
 
 // Submits the picked Variant for approval: one transaction completes the Task and

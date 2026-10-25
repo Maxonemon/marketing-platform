@@ -4,6 +4,7 @@ import { AI_OUTPUT_INVALID, AiProviderError } from "@/lib/ai/provider";
 import { CONTENT_BRIEF_MAX_LENGTH } from "@/lib/limits";
 import { addTestMember, createTestBrand, createTestUser, createTestWorkspace } from "@/test/fixtures";
 import { listActivity } from "./activity-log";
+import { updateBrand } from "./brands";
 import {
   requestContent,
   runContentTask,
@@ -117,6 +118,75 @@ describe("requesting content", () => {
     expect(request.prompt).toContain(NORTHWIND.voice);
     expect(request.prompt).toContain(LAUNCH_POST.brief);
     expect(request.maxTokens).toBeGreaterThan(0);
+  });
+
+  it("gives the content agent the Brand's offers and keywords", async () => {
+    const { mia, workspaceId, brandId } = await setUpBrand();
+    await updateBrand(mia, workspaceId, brandId, {
+      ...NORTHWIND,
+      offers: ["Free shipping over $40"],
+      keywords: ["single origin", "fresh roast"],
+    });
+    const ai = createFakeAiProvider(() => POSTS);
+
+    const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, recordingStartTask().startTask);
+    if (!requested.ok) throw new Error("expected the request to succeed");
+    await runContentTask(requested.value.id, ai);
+
+    const prompt = ai.requests[0]?.prompt;
+    expect(prompt).toContain("Free shipping over $40");
+    expect(prompt).toContain("single origin");
+    expect(prompt).toContain("fresh roast");
+  });
+
+  it("checks each Variant against the Brand rules and keeps the violations with it", async () => {
+    const { mia, workspaceId, brandId } = await setUpBrand();
+    await updateBrand(mia, workspaceId, brandId, {
+      ...NORTHWIND,
+      prohibitedPhrases: ["guaranteed"],
+      requiredDisclaimers: ["Offer ends Sunday."],
+    });
+    const ai = createFakeAiProvider(() => ({
+      variants: [
+        { body: "Guaranteed to wake you up. Offer ends Sunday." },
+        { body: "Our autumn blend lands Monday." },
+        { body: "Our autumn blend lands Monday. Offer ends Sunday." },
+      ],
+    }));
+
+    const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, recordingStartTask().startTask);
+    if (!requested.ok) throw new Error("expected the request to succeed");
+    await runContentTask(requested.value.id, ai);
+
+    expect(await getReview(mia, workspaceId, requested.value.id)).toMatchObject({
+      ok: true,
+      value: {
+        variants: [
+          { variant: 1, violations: [{ kind: "PROHIBITED_PHRASE", phrase: "guaranteed" }] },
+          { variant: 2, violations: [{ kind: "MISSING_DISCLAIMER", disclaimer: "Offer ends Sunday." }] },
+          { variant: 3, violations: [] },
+        ],
+      },
+    });
+  });
+
+  it("checks an Email's subject line too", async () => {
+    const { mia, workspaceId, brandId } = await setUpBrand();
+    await updateBrand(mia, workspaceId, brandId, { ...NORTHWIND, prohibitedPhrases: ["guaranteed"] });
+    const ai = createFakeAiProvider(() => ({
+      variants: EMAILS.variants.map((variant, index) => (index === 0 ? { ...variant, subject: "Guaranteed joy" } : variant)),
+    }));
+
+    const requested = await requestContent(mia, workspaceId, brandId, WELCOME_EMAIL, recordingStartTask().startTask);
+    if (!requested.ok) throw new Error("expected the request to succeed");
+    await runContentTask(requested.value.id, ai);
+
+    expect(await getReview(mia, workspaceId, requested.value.id)).toMatchObject({
+      ok: true,
+      value: {
+        variants: [{ violations: [{ kind: "PROHIBITED_PHRASE", phrase: "guaranteed" }] }, { violations: [] }, { violations: [] }],
+      },
+    });
   });
 
   it("writes a subject line for each Variant of an Email", async () => {

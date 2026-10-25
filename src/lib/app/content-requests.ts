@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Task } from "@/generated/prisma/client";
 import { writeVariants, type WrittenVariants } from "@/lib/ai/content-agent";
 import { estimateCostMicroUsd } from "@/lib/ai/pricing";
+import { checkBrandRules, type BrandRules } from "@/lib/brand-rules";
 import { AiProviderError, type AiProvider, type AiUsage } from "@/lib/ai/provider";
 import { CHANNELS, CONTENT_TYPES } from "@/lib/content-options";
 import { db } from "@/lib/db";
@@ -90,7 +91,7 @@ export async function runContentTask(
   try {
     const task = await db.task.findUniqueOrThrow({ where: { id: taskId }, include: { brand: true } });
     const written = await writeVariants(ai, task.brand, contentRequestSchema.parse(task.input));
-    await saveVariants(taskId, written);
+    await saveVariants(taskId, written, task.brand);
     return "DONE";
   } catch (error: unknown) {
     if (!(error instanceof AiProviderError)) {
@@ -112,10 +113,17 @@ async function releaseTask(taskId: string): Promise<void> {
   await db.task.update({ where: { id: taskId }, data: { status: "QUEUED", startedAt: null } });
 }
 
-async function saveVariants(taskId: string, { variants, usage }: WrittenVariants): Promise<void> {
+// Each Variant is saved with the Brand rules it breaks, subject line included.
+async function saveVariants(taskId: string, { variants, usage }: WrittenVariants, rules: BrandRules): Promise<void> {
   await db.$transaction([
     db.contentAsset.createMany({
-      data: variants.map(({ subject, body }, index) => ({ taskId, variant: index + 1, subject, body })),
+      data: variants.map(({ subject, body }, index) => ({
+        taskId,
+        variant: index + 1,
+        subject,
+        body,
+        ruleViolations: checkBrandRules([subject, body].filter(Boolean).join("\n"), rules),
+      })),
     }),
     db.task.update({
       where: { id: taskId },

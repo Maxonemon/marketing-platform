@@ -6,8 +6,8 @@ import { requireRole, type Actor } from "@/lib/permissions";
 import { hashPayload, verifyPayload, type ProposedActionPayload } from "@/lib/workflows/proposed-action-payload";
 import { appendActivity } from "./activity-log";
 import { fail, ok, type Result } from "./result";
-import type { ReviewVariant } from "./reviews";
 import { taskSummaryInclude, toTaskSummary, type TaskSummary } from "./tasks";
+import { reviewVariantSelect, toReviewVariant, type ReviewVariant } from "./variants";
 
 export interface ApprovalDetail {
   id: string;
@@ -94,7 +94,7 @@ const approvalDetailInclude = {
   proposedAction: {
     include: {
       createdBy: { select: { name: true } },
-      contentAsset: { select: { id: true, variant: true, subject: true, body: true, task: { include: taskSummaryInclude } } },
+      contentAsset: { select: { ...reviewVariantSelect, task: { include: taskSummaryInclude } } },
     },
   },
 } satisfies Prisma.ApprovalInclude;
@@ -187,7 +187,7 @@ export async function getApproval(actor: Actor, workspaceId: string, approvalId:
       createdBy: proposedAction.createdBy.name,
       createdAt: proposedAction.createdAt,
     },
-    contentAsset,
+    contentAsset: toReviewVariant(contentAsset),
     task: toTaskSummary(task),
     executions: row.executions,
   });

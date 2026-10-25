@@ -34,7 +34,7 @@ export interface WrittenVariants {
   usage: AiUsage;
 }
 
-export type BrandProfile = Pick<Brand, "name" | "websiteUrl" | "industry" | "audience" | "voice">;
+export type BrandProfile = Pick<Brand, "name" | "websiteUrl" | "industry" | "audience" | "voice" | "offers" | "keywords">;
 
 export interface ContentBrief {
   contentType: ContentType;
@@ -71,6 +71,8 @@ function buildPrompt(brand: BrandProfile, { contentType, brief }: ContentBrief):
     brand.industry && `Industry: ${brand.industry}`,
     brand.audience && `Audience: ${brand.audience}`,
     brand.voice && `Voice: ${brand.voice}`,
+    brand.offers.length > 0 && `Offers: ${brand.offers.join("; ")}`,
+    brand.keywords.length > 0 && `Keywords to use: ${brand.keywords.join("; ")}`,
     `Content type: ${CONTENT_TYPE_LABELS[contentType]}`,
     `Brief: ${brief}`,
     `Write exactly ${VARIANT_COUNT} variants. Each variant is ${variantShape}.`,
