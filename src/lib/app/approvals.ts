@@ -48,7 +48,7 @@ export interface ExecutionSummary {
 export interface Proposal {
   workspaceId: string;
   task: TaskSummary;
-  contentAsset: { id: string; body: string };
+  contentAsset: { id: string; subject: string | null; body: string };
   // The Rejected Approval this one resubmits.
   resubmissionOfId?: string;
 }
@@ -94,7 +94,7 @@ const approvalDetailInclude = {
   proposedAction: {
     include: {
       createdBy: { select: { name: true } },
-      contentAsset: { select: { id: true, variant: true, body: true, task: { include: taskSummaryInclude } } },
+      contentAsset: { select: { id: true, variant: true, subject: true, body: true, task: { include: taskSummaryInclude } } },
     },
   },
 } satisfies Prisma.ApprovalInclude;
@@ -113,7 +113,8 @@ export async function proposeAction(tx: Prisma.TransactionClient, actor: Actor, 
   const payload: ProposedActionPayload = {
     channel: task.input.channel,
     contentType: task.input.contentType,
-    content: { body: contentAsset.body },
+    // A null subject is left out, so a payload without one hashes as it always has.
+    content: { subject: contentAsset.subject ?? undefined, body: contentAsset.body },
     audience: null,
     timing: { kind: "AS_SOON_AS_APPROVED" },
   };
@@ -300,7 +301,7 @@ export async function resubmit(actor: Actor, workspaceId: string, approvalId: st
   const rejected = await db.approval.findFirst({
     where: inWorkspace(approvalId, workspaceId),
     include: {
-      proposedAction: { select: { contentAsset: { select: { id: true, body: true, task: { include: taskSummaryInclude } } } } },
+      proposedAction: { select: { contentAsset: { select: { id: true, subject: true, body: true, task: { include: taskSummaryInclude } } } } },
     },
   });
   if (!rejected) return fail("NOT_FOUND", APPROVAL_NOT_FOUND);

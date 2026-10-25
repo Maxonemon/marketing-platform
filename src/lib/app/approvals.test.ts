@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { VARIANT_COUNT } from "@/lib/ai/content-agent";
+import { createFakeAiProvider } from "@/lib/ai/fake-provider";
 import { db } from "@/lib/db";
 import { addTestMember, createTestApproval, createTestBrand, createTestReview, createTestUser, createTestWorkspace } from "@/test/fixtures";
 import { listActivity } from "./activity-log";
+import { requestContent, runContentTask } from "./content-requests";
 import { approve, getApproval, listPendingApprovals, reject, resubmit, type StartExecution } from "./approvals";
 import { getReview, submitReview } from "./reviews";
 import { getTask } from "./tasks";
@@ -71,6 +74,34 @@ describe("submitting a Review", () => {
         { event: "PROPOSED_ACTION_SUBMITTED", actorName: "Mia", taskId, approvalId, details: { payloadHash: EXPECTED_HASH } },
         { event: "BRAND_CREATED" },
       ],
+    });
+  });
+
+  it("proposes an Email Variant with its subject line", async () => {
+    const { mia, workspaceId, brandId } = await setUpWorkspace();
+    const request = { contentType: "EMAIL", channel: "MOCK", brief: "Welcome new subscribers." };
+    const requested = await requestContent(mia, workspaceId, brandId, request, async () => {});
+    if (!requested.ok) throw new Error("expected the request to succeed");
+    const taskId = requested.value.id;
+    const emails = Array.from({ length: VARIANT_COUNT }, (_, index) => ({
+      subject: `Welcome ${index + 1}`,
+      body: `Thanks for joining us (${index + 1}).`,
+    }));
+    await runContentTask(taskId, createFakeAiProvider(() => ({ variants: emails })));
+    const review = await getReview(mia, workspaceId, taskId);
+    const second = review.ok ? review.value.variants[1] : undefined;
+    if (!second) throw new Error("expected a Review with three Variants");
+
+    const submitted = await submitReview(mia, workspaceId, taskId, { contentAssetId: second.id });
+
+    if (!submitted.ok) throw new Error("expected the submit to succeed");
+    expect(await getApproval(mia, workspaceId, submitted.value.id)).toMatchObject({
+      ok: true,
+      value: {
+        proposedAction: {
+          payload: { contentType: "EMAIL", content: { subject: "Welcome 2", body: "Thanks for joining us (2)." } },
+        },
+      },
     });
   });
 

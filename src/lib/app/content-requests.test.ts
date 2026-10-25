@@ -23,6 +23,22 @@ const NORTHWIND = {
 const LAUNCH_POST = { contentType: "SOCIAL_POST", channel: "MOCK", brief: "Announce our autumn blend, out on Monday." } as const;
 
 const POST_TEXT = "Our autumn blend lands Monday: cocoa, cherry and a long, warm finish.";
+const POSTS = {
+  variants: [
+    { body: POST_TEXT },
+    { body: "Monday brings our autumn blend. Cocoa up front, cherry behind." },
+    { body: "New beans on Monday: the autumn blend is nearly here." },
+  ],
+};
+
+const WELCOME_EMAIL = { contentType: "EMAIL", channel: "MOCK", brief: "Welcome new subscribers." } as const;
+const EMAILS = {
+  variants: [
+    { subject: "Welcome to Northwind", body: "Thanks for joining us. Your first bag ships Friday." },
+    { subject: "You're in", body: "Good coffee is on its way. Here is what to expect." },
+    { subject: "Hello from Northwind Coffee", body: "We roast every Tuesday and ship every Friday." },
+  ],
+};
 
 // Stands in for Inngest: records which Tasks the request asked to start.
 function recordingStartTask(): { startTask: StartTask; startedTaskIds: string[] } {
@@ -45,10 +61,10 @@ async function setUpBrand() {
 }
 
 describe("requesting content", () => {
-  it("queues a Task at once, and the background run writes one Variant for Review", async () => {
+  it("queues a Task at once, and the background run writes three Variants for Review", async () => {
     const { owner, mia, workspaceId, brandId } = await setUpBrand();
     const { startTask, startedTaskIds } = recordingStartTask();
-    const ai = createFakeAiProvider(() => ({ variants: [{ body: POST_TEXT }] }));
+    const ai = createFakeAiProvider(() => POSTS);
 
     const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, startTask);
 
@@ -76,7 +92,10 @@ describe("requesting content", () => {
     });
     expect(await getReview(mia, workspaceId, taskId)).toMatchObject({
       ok: true,
-      value: { task: { id: taskId }, variants: [{ variant: 1, body: POST_TEXT }] },
+      value: {
+        task: { id: taskId },
+        variants: POSTS.variants.map(({ body }, index) => ({ variant: index + 1, subject: null, body })),
+      },
     });
     expect(await listTasks(owner, workspaceId)).toMatchObject({ ok: true, value: [{ id: taskId, status: "IN_REVIEW" }] });
   });
@@ -84,7 +103,7 @@ describe("requesting content", () => {
   it("gives the content agent the Brand's settings, the brief and a max token limit", async () => {
     const { mia, workspaceId, brandId } = await setUpBrand();
     const { startTask } = recordingStartTask();
-    const ai = createFakeAiProvider(() => ({ variants: [{ body: POST_TEXT }] }));
+    const ai = createFakeAiProvider(() => POSTS);
 
     const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, startTask);
     if (!requested.ok) throw new Error("expected the request to succeed");
@@ -100,11 +119,27 @@ describe("requesting content", () => {
     expect(request.maxTokens).toBeGreaterThan(0);
   });
 
+  it("writes a subject line for each Variant of an Email", async () => {
+    const { mia, workspaceId, brandId } = await setUpBrand();
+    const { startTask } = recordingStartTask();
+    const ai = createFakeAiProvider(() => EMAILS);
+
+    const requested = await requestContent(mia, workspaceId, brandId, WELCOME_EMAIL, startTask);
+    if (!requested.ok) throw new Error("expected the request to succeed");
+    await runContentTask(requested.value.id, ai);
+
+    expect(ai.requests[0]?.prompt).toContain("subject");
+    expect(await getReview(mia, workspaceId, requested.value.id)).toMatchObject({
+      ok: true,
+      value: { variants: EMAILS.variants.map((variant, index) => ({ variant: index + 1, ...variant })) },
+    });
+  });
+
   // Inngest may deliver an event twice.
   it("runs each Task once: a second run of the same Task does nothing", async () => {
     const { mia, workspaceId, brandId } = await setUpBrand();
     const { startTask } = recordingStartTask();
-    const ai = createFakeAiProvider(() => ({ variants: [{ body: POST_TEXT }] }));
+    const ai = createFakeAiProvider(() => POSTS);
     const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, startTask);
     if (!requested.ok) throw new Error("expected the request to succeed");
 
@@ -114,7 +149,7 @@ describe("requesting content", () => {
     expect(ai.requests).toHaveLength(1);
     expect(await getTask(mia, workspaceId, requested.value.id)).toMatchObject({
       ok: true,
-      value: { status: "IN_REVIEW", variantCount: 1 },
+      value: { status: "IN_REVIEW", variantCount: 3 },
     });
   });
 
@@ -163,7 +198,7 @@ describe("another Workspace's content", () => {
     const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, startTask);
     if (!requested.ok) throw new Error("expected the request to succeed");
     const taskId = requested.value.id;
-    await runContentTask(taskId, createFakeAiProvider(() => ({ variants: [{ body: POST_TEXT }] })));
+    await runContentTask(taskId, createFakeAiProvider(() => POSTS));
     const outsider = await createTestUser("Oscar");
     const outsiderWorkspaceId = await createTestWorkspace(outsider, "other-agency");
 
@@ -210,18 +245,26 @@ describe("a content Task that fails", () => {
     });
   });
 
-  it("is FAILED, with nothing saved, when the AI output doesn't match the expected structure", async () => {
+  it.each([
+    ["a Variant has no body", LAUNCH_POST, { variants: [{ text: POST_TEXT }, ...POSTS.variants.slice(1)] }],
+    ["there are fewer than three Variants", LAUNCH_POST, { variants: POSTS.variants.slice(0, 2) }],
+    ["an Email Variant has no subject", WELCOME_EMAIL, { variants: [{ body: "Hi" }, ...EMAILS.variants.slice(1)] }],
+  ])("is FAILED, with nothing saved and the failure logged, when %s", async (_case, request, reply) => {
     const { mia, workspaceId, brandId } = await setUpBrand();
     const { startTask } = recordingStartTask();
-    const ai = createFakeAiProvider(() => ({ variants: [{ text: POST_TEXT }] }));
+    const ai = createFakeAiProvider(() => reply);
 
-    const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, startTask);
+    const requested = await requestContent(mia, workspaceId, brandId, request, startTask);
     if (!requested.ok) throw new Error("expected the request to succeed");
     await runContentTask(requested.value.id, ai);
 
     expect(await getTask(mia, workspaceId, requested.value.id)).toMatchObject({
       ok: true,
       value: { status: "FAILED", error: AI_OUTPUT_INVALID, variantCount: 0 },
+    });
+    expect(await listActivity(mia, workspaceId)).toMatchObject({
+      ok: true,
+      value: [{ event: "TASK_FAILED", details: { error: AI_OUTPUT_INVALID } }, { event: "BRAND_CREATED" }],
     });
   });
 

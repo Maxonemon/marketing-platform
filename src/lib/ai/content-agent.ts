@@ -3,16 +3,32 @@ import type { Brand } from "@/generated/prisma/client";
 import { CONTENT_TYPE_LABELS, type ContentType } from "@/lib/content-options";
 import type { AiProvider } from "./provider";
 
-// One Variant per request for now; ticket 06 asks for three.
-export const VARIANT_COUNT = 1;
-// Caps the model's answer, and with it what one request can cost.
-export const CONTENT_AGENT_MAX_TOKENS = 1024;
+// Three real alternatives to choose from in the Review.
+export const VARIANT_COUNT = 3;
+// Caps the model's answer, and with it what one request can cost. Room for three
+// Variants of the longest content type (an Email).
+export const CONTENT_AGENT_MAX_TOKENS = 3000;
 const VARIANT_BODY_MAX_LENGTH = 5000;
+const VARIANT_SUBJECT_MAX_LENGTH = 150;
 
-const variantSchema = z.object({ body: z.string().trim().min(1).max(VARIANT_BODY_MAX_LENGTH) });
-const contentAgentOutputSchema = z.object({ variants: z.array(variantSchema).length(VARIANT_COUNT) });
+// Content types whose Variants carry a subject line besides the body.
+const CONTENT_TYPES_WITH_SUBJECT: ReadonlySet<ContentType> = new Set(["EMAIL"]);
 
-export type Variant = z.infer<typeof variantSchema>;
+const bodySchema = z.string().trim().min(1).max(VARIANT_BODY_MAX_LENGTH);
+const subjectSchema = z.string().trim().min(1).max(VARIANT_SUBJECT_MAX_LENGTH);
+
+function outputSchemaFor(contentType: ContentType) {
+  const variant = CONTENT_TYPES_WITH_SUBJECT.has(contentType)
+    ? z.object({ subject: subjectSchema, body: bodySchema })
+    : z.object({ body: bodySchema });
+  return z.object({ variants: z.array(variant).length(VARIANT_COUNT) });
+}
+
+export interface Variant {
+  subject?: string;
+  body: string;
+}
+
 export type BrandProfile = Pick<Brand, "name" | "websiteUrl" | "industry" | "audience" | "voice">;
 
 export interface ContentBrief {
@@ -24,6 +40,8 @@ const SYSTEM_PROMPT = [
   "You write marketing content for one brand.",
   "Write in the brand's voice, for its audience, and follow the brief.",
   "Make each variant ready to publish as is: no notes, placeholders or commentary.",
+  "Make the variants real alternatives, each with its own angle.",
+  'Answer with JSON only: {"variants": [...]}.',
 ].join(" ");
 
 // The content agent: a plain function. Brand settings and the brief go in, validated
@@ -32,13 +50,16 @@ export async function writeVariants(ai: AiProvider, brand: BrandProfile, brief: 
   const { output } = await ai.generate({
     system: SYSTEM_PROMPT,
     prompt: buildPrompt(brand, brief),
-    schema: contentAgentOutputSchema,
+    schema: outputSchemaFor(brief.contentType),
     maxTokens: CONTENT_AGENT_MAX_TOKENS,
   });
   return output.variants;
 }
 
 function buildPrompt(brand: BrandProfile, { contentType, brief }: ContentBrief): string {
+  const variantShape = CONTENT_TYPES_WITH_SUBJECT.has(contentType)
+    ? '{"subject": "<subject line>", "body": "<text>"}'
+    : '{"body": "<text>"}';
   const lines = [
     `Brand: ${brand.name}`,
     brand.websiteUrl && `Website: ${brand.websiteUrl}`,
@@ -47,7 +68,7 @@ function buildPrompt(brand: BrandProfile, { contentType, brief }: ContentBrief):
     brand.voice && `Voice: ${brand.voice}`,
     `Content type: ${CONTENT_TYPE_LABELS[contentType]}`,
     `Brief: ${brief}`,
-    `Write ${VARIANT_COUNT} variant(s).`,
+    `Write exactly ${VARIANT_COUNT} variants. Each variant is ${variantShape}.`,
   ];
   return lines.filter(Boolean).join("\n");
 }

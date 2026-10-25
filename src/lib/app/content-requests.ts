@@ -87,7 +87,9 @@ export async function runContentTask(taskId: string, ai: AiProvider): Promise<vo
 
 async function saveVariants(taskId: string, variants: Variant[]): Promise<void> {
   await db.$transaction([
-    db.contentAsset.createMany({ data: variants.map(({ body }, index) => ({ taskId, variant: index + 1, body })) }),
+    db.contentAsset.createMany({
+      data: variants.map(({ subject, body }, index) => ({ taskId, variant: index + 1, subject, body })),
+    }),
     db.task.update({ where: { id: taskId }, data: { status: "IN_REVIEW", finishedAt: new Date() } }),
   ]);
 }

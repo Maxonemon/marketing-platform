@@ -36,25 +36,30 @@ export async function createTestBrand(actor: Actor, workspaceId: string, setting
 
 export interface TestReview {
   taskId: string;
-  // The Content Asset id of its one Variant.
+  // The Content Asset id of its first Variant.
   variantId: string;
 }
 
+// The fake AI's reply for a social post: three Variants, the first with `body`.
+export function fakeVariants(body: string) {
+  return { variants: [{ body }, { body: `${body} (Variant 2)` }, { body: `${body} (Variant 3)` }] };
+}
+
 // A social post for the mock Channel, requested by `actor` and written by the fake AI
-// as one Variant with `body`: an IN_REVIEW Task, created the way the app creates it.
+// as three Variants, the first with `body`: an IN_REVIEW Task, created the way the app creates it.
 export async function createTestReview(actor: Actor, workspaceId: string, brandId: string, body: string): Promise<TestReview> {
   const request = { contentType: "SOCIAL_POST", channel: "MOCK", brief: "Announce our autumn blend." };
   const requested = await requestContent(actor, workspaceId, brandId, request, async () => {});
   if (!requested.ok) throw new Error("Test setup: could not request content.");
   const taskId = requested.value.id;
-  await runContentTask(taskId, createFakeAiProvider(() => ({ variants: [{ body }] })));
+  await runContentTask(taskId, createFakeAiProvider(() => fakeVariants(body)));
   const review = await getReview(actor, workspaceId, taskId);
   const variantId = review.ok ? review.value.variants[0]?.id : undefined;
   if (!variantId) throw new Error("Test setup: the content Task wrote no Variant.");
   return { taskId, variantId };
 }
 
-// A Review with one Variant (`body`) that `actor` submitted: returns its Pending Approval's id.
+// A Review whose first Variant (`body`) `actor` submitted: returns its Pending Approval's id.
 export async function createTestApproval(actor: Actor, workspaceId: string, brandId: string, body: string): Promise<string> {
   const { taskId, variantId } = await createTestReview(actor, workspaceId, brandId, body);
   const submitted = await submitReview(actor, workspaceId, taskId, { contentAssetId: variantId });

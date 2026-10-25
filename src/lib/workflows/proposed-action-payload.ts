@@ -8,7 +8,9 @@ import { CHANNELS, CONTENT_TYPES } from "@/lib/content-options";
 export const proposedActionPayloadSchema = z.strictObject({
   channel: z.enum(CHANNELS),
   contentType: z.enum(CONTENT_TYPES),
-  content: z.strictObject({ body: z.string().min(1) }),
+  // `subject` only for content types that have one (an Email). Optional, so payloads
+  // stored before it existed keep parsing and keep their hashes.
+  content: z.strictObject({ subject: z.string().min(1).optional(), body: z.string().min(1) }),
   // Who it reaches, in the Channel's terms; null when the Channel takes none, as the
   // mock Channel does. Setting one at submit comes with ticket 08.
   audience: z.string().nullable(),

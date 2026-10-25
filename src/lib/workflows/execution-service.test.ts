@@ -8,7 +8,7 @@ import { getTask } from "@/lib/app/tasks";
 import type { ChannelAdapter } from "@/lib/channels/channel-adapter";
 import { createMockChannel } from "@/lib/channels/mock-channel";
 import { db } from "@/lib/db";
-import { addTestMember, createTestApproval, createTestBrand, createTestUser, createTestWorkspace } from "@/test/fixtures";
+import { addTestMember, createTestApproval, createTestBrand, createTestUser, createTestWorkspace, fakeVariants } from "@/test/fixtures";
 import { DELIVERY_FAILED, executeApproval } from "./execution-service";
 
 const POST_TEXT = "Our autumn blend lands Monday: cocoa, cherry and a long, warm finish.";
@@ -51,10 +51,10 @@ describe("the tracer bullet", () => {
     const requested = await requestContent(mia, workspaceId, brandId, request, async () => {});
     if (!requested.ok) throw new Error("expected the request to succeed");
     const taskId = requested.value.id;
-    await runContentTask(taskId, createFakeAiProvider(() => ({ variants: [{ body: POST_TEXT }] })));
+    await runContentTask(taskId, createFakeAiProvider(() => fakeVariants(POST_TEXT)));
     const review = await getReview(mia, workspaceId, taskId);
     const variantId = review.ok ? review.value.variants[0]?.id : undefined;
-    if (!variantId) throw new Error("expected a Review with one Variant");
+    if (!variantId) throw new Error("expected a Review with Variants");
     const submitted = await submitReview(mia, workspaceId, taskId, { contentAssetId: variantId });
     if (!submitted.ok) throw new Error("expected the submit to succeed");
     const approvalId = submitted.value.id;
