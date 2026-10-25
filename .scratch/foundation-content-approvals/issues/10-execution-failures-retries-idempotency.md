@@ -23,3 +23,8 @@ Spec: [../spec.md](../spec.md) (stories 63–66).
 - [ ] An Execution left STARTED (the process died mid-delivery) is never finished: a retry is refused as ALREADY_ATTEMPTED. Decide how a stale STARTED attempt is reconciled without risking a second delivery (every attempt carries the same idempotency key to the Channel).
 - [ ] Story 75 asks for every Execution attempt and its result in the Activity Log. Today a FAILED attempt is recorded on the Approval but not logged.
 - [ ] The execution service rethrows the Channel's raw error, which ends up in Inngest's run logs. Rethrow a sanitized error so a real Channel's error can never put a credential there.
+
+**From ticket 08's review** (an edit supersedes an Approved Approval only while `canBeSuperseded` in `src/lib/app/approvals.ts` allows it):
+
+- [ ] A STARTED attempt blocks superseding, so a stale STARTED attempt also locks that version against edits. Reconciling stale attempts must keep that rule: a version that may have gone out can't be replaced.
+- [ ] A FAILED attempt doesn't block superseding, which is only safe if FAILED means nothing was sent. If a Channel can fail after delivering (a timeout), record that as "may have been delivered" and block superseding for it too. Retries must also re-check the Approval under its row lock, as `claimAttempt` does, so a superseded Approval is never retried.

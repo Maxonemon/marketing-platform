@@ -28,11 +28,14 @@ const subjectSchema = z
   .min(1, "Write a subject line.")
   .max(CONTENT_SUBJECT_MAX_LENGTH, `Use at most ${CONTENT_SUBJECT_MAX_LENGTH} characters.`);
 
-// Who a Proposed Action reaches, in the Channel's terms. Blank means none.
+// Who a Proposed Action reaches, in the Channel's terms. Blank means none. One line with
+// no control characters, so a Channel can't read part of it as a header or a second
+// recipient; each real Channel will check its own format too.
 export const audienceSchema = z
   .string()
   .trim()
   .max(AUDIENCE_MAX_LENGTH, `Use at most ${AUDIENCE_MAX_LENGTH} characters.`)
+  .regex(/^\P{Cc}*$/u, "Use one line, without tabs or control characters.")
   .transform((audience) => (audience === "" ? null : audience));
 
 const contentWithSubjectSchema = z.object({ subject: subjectSchema, body: bodySchema });

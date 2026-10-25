@@ -150,4 +150,18 @@ describe("the audience set at submit", () => {
     expect(result).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", fieldErrors: { audience: [expect.any(String)] } } });
     expect(await getReview(mia, workspaceId, taskId)).toMatchObject({ ok: true });
   });
+
+  // A real Channel might read a line break as a header or a second recipient.
+  it.each([
+    ["a line break", "Newsletter subscribers\nBcc: everyone@example.com"],
+    ["a control character", "Newsletter\u0000subscribers"],
+  ])("is refused when it contains %s, and the Review stays open", async (_kind, audience) => {
+    const { mia, workspaceId, brandId } = await setUpWorkspace();
+    const { taskId, variantId } = await createTestReview(mia, workspaceId, brandId, POST_TEXT);
+
+    const result = await submitReview(mia, workspaceId, taskId, { contentAssetId: variantId, audience });
+
+    expect(result).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", fieldErrors: { audience: [expect.any(String)] } } });
+    expect(await getReview(mia, workspaceId, taskId)).toMatchObject({ ok: true });
+  });
 });

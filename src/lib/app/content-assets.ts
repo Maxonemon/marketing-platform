@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { requireRole, type Actor } from "@/lib/permissions";
 import { hashPayload, verifyPayload, type ProposedActionPayload } from "@/lib/workflows/proposed-action-payload";
 import { appendActivity } from "./activity-log";
-import { canBeSuperseded, lockApproval, payloadOf, proposeAction } from "./approvals";
+import { APPROVAL_NOT_FOUND, canBeSuperseded, lockApproval, payloadOf, proposeAction } from "./approvals";
 import { audienceSchema, checkContent, parseContent, type ContentInput } from "./content-edits";
 import { fail, ok, type Result } from "./result";
 import { taskSummaryInclude, toTaskSummary, type TaskSummary } from "./tasks";
@@ -36,7 +36,6 @@ export interface ProposalHistoryEntry {
 export type ProposedContentInput = ContentInput & { audience?: string };
 
 const CONTENT_ASSET_NOT_FOUND = "Content Asset not found.";
-const APPROVAL_NOT_FOUND = "Approval not found.";
 const NOTHING_CHANGED = "Nothing changed: edit the text or the audience first.";
 export const NOT_EDITABLE =
   "This version can't be changed any more: it was decided, replaced, or has gone or is going out.";

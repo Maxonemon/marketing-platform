@@ -71,7 +71,7 @@ export const APPROVAL_QUEUE_PAGE_SIZE = 100;
 // Starts an Approval's background Execution: the app sends an Inngest event, tests record the call.
 export type StartExecution = (approvalId: string) => Promise<void>;
 
-const APPROVAL_NOT_FOUND = "Approval not found.";
+export const APPROVAL_NOT_FOUND = "Approval not found.";
 export const APPROVAL_ALREADY_DECIDED = "This Approval has already been decided.";
 const PAYLOAD_CHANGED = "This Proposed Action no longer matches its hash, so it can't be approved.";
 const RESUBMITTED_PAYLOAD_CHANGED = "This Proposed Action no longer matches its hash, so it can't be resubmitted.";
@@ -320,8 +320,9 @@ export async function reject(
   });
 }
 
-// Any member can resubmit a Rejected Approval: its Content Asset, as it is now, to the same
-// audience, becomes a new Proposed Action with a new Pending Approval that links back to the rejected one.
+// Any member can resubmit a Rejected Approval: its Content Asset, as it is now, to the
+// same audience, becomes a new Proposed Action with a new Pending Approval that links
+// back to the rejected one.
 // The rejected records are never written. REJECTED is final, so the status read here
 // can't change before the write, and the unique link lets only one resubmission through,
 // even when two people resubmit at the same moment.
