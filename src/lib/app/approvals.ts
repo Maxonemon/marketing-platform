@@ -43,12 +43,13 @@ export interface ExecutionSummary {
   finishedAt: Date | null;
 }
 
-// What to propose: a Content Asset as it is now, and the Task it came from (its Brand,
-// Channel and content type).
+// What to propose: a Content Asset as it is now, who it reaches, and the Task it came
+// from (its Brand, Channel and content type).
 export interface Proposal {
   workspaceId: string;
   task: TaskSummary;
   contentAsset: { id: string; subject: string | null; body: string };
+  audience: string | null;
   // The Rejected Approval this one resubmits.
   resubmissionOfId?: string;
 }
@@ -70,6 +71,7 @@ export type StartExecution = (approvalId: string) => Promise<void>;
 const APPROVAL_NOT_FOUND = "Approval not found.";
 export const APPROVAL_ALREADY_DECIDED = "This Approval has already been decided.";
 const PAYLOAD_CHANGED = "This Proposed Action no longer matches its hash, so it can't be approved.";
+const RESUBMITTED_PAYLOAD_CHANGED = "This Proposed Action no longer matches its hash, so it can't be resubmitted.";
 const COMMENT_REQUIRED = "Tell the author what to change.";
 const NOT_REJECTED = "Only a rejected Approval can be resubmitted.";
 const ALREADY_RESUBMITTED = "This rejection has already been resubmitted.";
@@ -110,14 +112,7 @@ function inWorkspace(approvalId: string, workspaceId: string): Prisma.ApprovalWh
 // callers have passed requireRole and found the Task and Content Asset in the Workspace.
 export async function proposeAction(tx: Prisma.TransactionClient, actor: Actor, proposal: Proposal): Promise<Approval> {
   const { workspaceId, task, contentAsset, resubmissionOfId } = proposal;
-  const payload: ProposedActionPayload = {
-    channel: task.input.channel,
-    contentType: task.input.contentType,
-    // A null subject is left out, so a payload without one hashes as it always has.
-    content: { subject: contentAsset.subject ?? undefined, body: contentAsset.body },
-    audience: null,
-    timing: { kind: "AS_SOON_AS_APPROVED" },
-  };
+  const payload = payloadOf(proposal);
   const payloadHash = hashPayload(payload);
   const proposedAction = await tx.proposedAction.create({
     data: { workspaceId, brandId: task.brand.id, contentAssetId: contentAsset.id, createdById: actor.userId, payload, payloadHash },
@@ -135,6 +130,19 @@ export async function proposeAction(tx: Prisma.TransactionClient, actor: Actor, 
     details: { payloadHash },
   });
   return approval;
+}
+
+// Exactly what proposing would snapshot: the Task's Channel and content type, the
+// Content Asset's text, the audience, and the timing.
+export function payloadOf({ task, contentAsset, audience }: Pick<Proposal, "task" | "contentAsset" | "audience">): ProposedActionPayload {
+  return {
+    channel: task.input.channel,
+    contentType: task.input.contentType,
+    // A null subject is left out, so a payload without one hashes as it always has.
+    content: { subject: contentAsset.subject ?? undefined, body: contentAsset.body },
+    audience,
+    timing: { kind: "AS_SOON_AS_APPROVED" },
+  };
 }
 
 // Locks the Approval's row until the transaction ends; false when there is no such
@@ -298,8 +306,8 @@ export async function reject(
   });
 }
 
-// Any member can resubmit a Rejected Approval: its Content Asset, as it is now, becomes a
-// new Proposed Action with a new Pending Approval that links back to the rejected one.
+// Any member can resubmit a Rejected Approval: its Content Asset, as it is now, to the same
+// audience, becomes a new Proposed Action with a new Pending Approval that links back to the rejected one.
 // The rejected records are never written. REJECTED is final, so the status read here
 // can't change before the write, and the unique link lets only one resubmission through,
 // even when two people resubmit at the same moment.
@@ -309,13 +317,28 @@ export async function resubmit(actor: Actor, workspaceId: string, approvalId: st
   const rejected = await db.approval.findFirst({
     where: inWorkspace(approvalId, workspaceId),
     include: {
-      proposedAction: { select: { contentAsset: { select: { id: true, subject: true, body: true, task: { include: taskSummaryInclude } } } } },
+      proposedAction: {
+        select: {
+          payload: true,
+          payloadHash: true,
+          contentAsset: { select: { id: true, subject: true, body: true, task: { include: taskSummaryInclude } } },
+        },
+      },
     },
   });
   if (!rejected) return fail("NOT_FOUND", APPROVAL_NOT_FOUND);
   if (rejected.status !== "REJECTED") return fail("CONFLICT", NOT_REJECTED);
-  const { task, ...contentAsset } = rejected.proposedAction.contentAsset;
-  const proposal: Proposal = { workspaceId, task: toTaskSummary(task), contentAsset, resubmissionOfId: approvalId };
+  const { payload, payloadHash, contentAsset: asset } = rejected.proposedAction;
+  const previous = verifyPayload(payload, payloadHash);
+  if (!previous) return fail("CONFLICT", RESUBMITTED_PAYLOAD_CHANGED);
+  const { task, ...contentAsset } = asset;
+  const proposal: Proposal = {
+    workspaceId,
+    task: toTaskSummary(task),
+    contentAsset,
+    audience: previous.audience,
+    resubmissionOfId: approvalId,
+  };
   try {
     return ok(await db.$transaction((tx) => proposeAction(tx, actor, proposal)));
   } catch (error: unknown) {

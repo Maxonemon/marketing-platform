@@ -11,8 +11,7 @@ export const proposedActionPayloadSchema = z.strictObject({
   // `subject` only for content types that have one (an Email). Optional, so payloads
   // stored before it existed keep parsing and keep their hashes.
   content: z.strictObject({ subject: z.string().min(1).optional(), body: z.string().min(1) }),
-  // Who it reaches, in the Channel's terms; null when the Channel takes none, as the
-  // mock Channel does. Setting one at submit comes with ticket 08.
+  // Who it reaches, in the Channel's terms, as set at submit or in an edit; null for none.
   audience: z.string().nullable(),
   // Always "as soon as approved" for now. Kept in the payload so that scheduling a
   // future time later is a material change too.

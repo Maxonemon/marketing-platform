@@ -1,10 +1,12 @@
 "use server";
 
+import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { sendContentRequested } from "@/inngest/client";
+import { contentFromForm, type ContentInput } from "@/lib/app/content-edits";
 import { requestContent, type ContentRequestInput } from "@/lib/app/content-requests";
 import type { FieldErrors } from "@/lib/app/result";
-import { submitReview } from "@/lib/app/reviews";
+import { editVariant, submitReview } from "@/lib/app/reviews";
 import { requireActor } from "@/lib/session";
 
 export interface RequestContentFormState {
@@ -38,8 +40,40 @@ export async function requestContentAction(
   redirect(`/w/${workspaceSlug}/tasks/${result.value.id}`);
 }
 
+export interface EditVariantFormState {
+  message?: string;
+  fieldErrors?: FieldErrors;
+  // What was typed, sent back on failure so the form keeps it.
+  values?: ContentInput;
+  // True once the edit is saved.
+  saved?: boolean;
+}
+
+export type EditVariantFormAction = (previous: EditVariantFormState, formData: FormData) => Promise<EditVariantFormState>;
+
+// Saves an edit to a Variant in an open Review. Bound ids are trusted only as far as
+// editVariant checks them (membership, a Task scoped to the Workspace and still
+// IN_REVIEW, a Variant of that Task).
+export async function editVariantAction(
+  workspaceId: string,
+  taskId: string,
+  contentAssetId: string,
+  _previous: EditVariantFormState,
+  formData: FormData,
+): Promise<EditVariantFormState> {
+  const actor = await requireActor();
+  const values = contentFromForm(formData);
+  const result = await editVariant(actor, workspaceId, taskId, contentAssetId, values);
+  if (!result.ok) return { message: result.error.message, fieldErrors: result.error.fieldErrors, values };
+  refresh();
+  return { saved: true };
+}
+
 export interface SubmitReviewFormState {
   message?: string;
+  fieldErrors?: FieldErrors;
+  // What was typed, sent back on failure so the form keeps it.
+  audience?: string;
 }
 
 export type SubmitReviewFormAction = (
@@ -59,7 +93,8 @@ export async function submitReviewAction(
 ): Promise<SubmitReviewFormState> {
   const actor = await requireActor();
   const contentAssetId = String(formData.get("contentAssetId") ?? "");
-  const result = await submitReview(actor, workspaceId, taskId, { contentAssetId });
-  if (!result.ok) return { message: result.error.message };
+  const audience = String(formData.get("audience") ?? "");
+  const result = await submitReview(actor, workspaceId, taskId, { contentAssetId, audience });
+  if (!result.ok) return { message: result.error.message, fieldErrors: result.error.fieldErrors, audience };
   redirect(`/w/${workspaceSlug}/approvals/${result.value.id}`);
 }

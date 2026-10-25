@@ -12,6 +12,9 @@ export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
   HEADLINE: "Headline",
 };
 
+// Content types whose Content Assets carry a subject line besides the body.
+export const CONTENT_TYPES_WITH_SUBJECT: ReadonlySet<ContentType> = new Set(["EMAIL"]);
+
 // Until real Integrations arrive (Phase 4) the only Channel is the mock one, which
 // records what it would have sent instead of publishing.
 export const CHANNELS = ["MOCK"] as const;

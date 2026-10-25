@@ -4,8 +4,9 @@ import { Suspense } from "react";
 import { getReview } from "@/lib/app/reviews";
 import { requireWorkspace } from "../../../require-workspace";
 import { RuleViolations } from "../../../rule-violations";
-import { submitReviewAction } from "../../actions";
+import { editVariantAction, submitReviewAction } from "../../actions";
 import { taskTitle } from "../../task-display";
+import { EditVariantForm } from "./edit-variant-form";
 import { SubmitVariantForm } from "./submit-variant-form";
 
 interface ReviewPageProps {
@@ -38,8 +39,9 @@ async function ReviewView({ params }: ReviewPageProps) {
         <h1 className="text-2xl font-semibold">Review: {taskTitle(task)}</h1>
         <p className="wrap-break-word whitespace-pre-wrap text-zinc-500">Brief: {task.input.brief}</p>
         <p className="text-zinc-500">
-          Pick the Variant to publish. Submitting turns it into a Proposed Action that an Owner or Admin must approve.
-          Brand rule warnings don&apos;t stop you submitting; the Approver sees them too.
+          Pick the Variant to publish, and edit it first if it needs it. Submitting turns it, as last saved, into a
+          Proposed Action that an Owner or Admin must approve. Brand rule warnings don&apos;t stop you submitting; the
+          Approver sees them too.
         </p>
       </div>
       <ol className="grid gap-4 md:grid-cols-3">
@@ -53,6 +55,11 @@ async function ReviewView({ params }: ReviewPageProps) {
             )}
             <p className="flex-1 wrap-break-word whitespace-pre-wrap">{body}</p>
             <RuleViolations violations={violations} />
+            <EditVariantForm
+              action={editVariantAction.bind(null, workspace.id, task.id, id)}
+              subject={subject}
+              body={body}
+            />
             <SubmitVariantForm action={submitAction} contentAssetId={id} variant={variant} />
           </li>
         ))}

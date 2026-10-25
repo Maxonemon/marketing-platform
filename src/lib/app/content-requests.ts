@@ -2,13 +2,14 @@ import { z } from "zod";
 import type { Task } from "@/generated/prisma/client";
 import { writeVariants, type WrittenVariants } from "@/lib/ai/content-agent";
 import { estimateCostMicroUsd } from "@/lib/ai/pricing";
-import { checkBrandRules, type BrandRules } from "@/lib/brand-rules";
+import type { BrandRules } from "@/lib/brand-rules";
 import { AiProviderError, type AiProvider, type AiUsage } from "@/lib/ai/provider";
 import { CHANNELS, CONTENT_TYPES } from "@/lib/content-options";
 import { db } from "@/lib/db";
 import { CONTENT_BRIEF_MAX_LENGTH } from "@/lib/limits";
 import type { Actor } from "@/lib/permissions";
 import { appendActivity } from "./activity-log";
+import { checkContent } from "./content-edits";
 import { getBrand } from "./brands";
 import { fail, ok, type Result } from "./result";
 
@@ -122,7 +123,7 @@ async function saveVariants(taskId: string, { variants, usage }: WrittenVariants
         variant: index + 1,
         subject,
         body,
-        ruleViolations: checkBrandRules([subject, body].filter(Boolean).join("\n"), rules),
+        ruleViolations: checkContent({ subject: subject ?? null, body }, rules),
       })),
     }),
     db.task.update({

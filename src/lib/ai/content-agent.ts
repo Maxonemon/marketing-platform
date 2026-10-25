@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Brand } from "@/generated/prisma/client";
-import { CONTENT_TYPE_LABELS, type ContentType } from "@/lib/content-options";
+import { CONTENT_TYPE_LABELS, CONTENT_TYPES_WITH_SUBJECT, type ContentType } from "@/lib/content-options";
+import { CONTENT_BODY_MAX_LENGTH, CONTENT_SUBJECT_MAX_LENGTH } from "@/lib/limits";
 import type { AiProvider, AiUsage } from "./provider";
 
 // Three real alternatives to choose from in the Review.
@@ -8,14 +9,9 @@ export const VARIANT_COUNT = 3;
 // Caps the model's answer, and with it what one request can cost. Room for three
 // Variants of the longest content type (an Email).
 export const CONTENT_AGENT_MAX_TOKENS = 3000;
-const VARIANT_BODY_MAX_LENGTH = 5000;
-const VARIANT_SUBJECT_MAX_LENGTH = 150;
 
-// Content types whose Variants carry a subject line besides the body.
-const CONTENT_TYPES_WITH_SUBJECT: ReadonlySet<ContentType> = new Set(["EMAIL"]);
-
-const bodySchema = z.string().trim().min(1).max(VARIANT_BODY_MAX_LENGTH);
-const subjectSchema = z.string().trim().min(1).max(VARIANT_SUBJECT_MAX_LENGTH);
+const bodySchema = z.string().trim().min(1).max(CONTENT_BODY_MAX_LENGTH);
+const subjectSchema = z.string().trim().min(1).max(CONTENT_SUBJECT_MAX_LENGTH);
 
 function outputSchemaFor(contentType: ContentType) {
   const variant = CONTENT_TYPES_WITH_SUBJECT.has(contentType)

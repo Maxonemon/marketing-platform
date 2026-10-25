@@ -21,4 +21,10 @@ export const BRAND_LIST_ITEM_MAX_LENGTH = 300;
 
 export const CONTENT_BRIEF_MAX_LENGTH = 1000;
 
+// A Content Asset, as the content agent writes it and as a member edits it.
+export const CONTENT_SUBJECT_MAX_LENGTH = 150;
+export const CONTENT_BODY_MAX_LENGTH = 5000;
+// The audience or recipients set when proposing.
+export const AUDIENCE_MAX_LENGTH = 1000;
+
 export const APPROVAL_COMMENT_MAX_LENGTH = 1000;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { AudienceField } from "../../../audience-field";
 import type { SubmitReviewFormAction, SubmitReviewFormState } from "../../actions";
 
 const INITIAL_STATE: SubmitReviewFormState = {};
@@ -11,7 +12,7 @@ interface SubmitVariantFormProps {
   variant: number;
 }
 
-// Picks one Variant and submits it for approval. On success the action redirects to
+// Picks one Variant, as last saved, and submits it for approval to the audience given. On success the action redirects to
 // the new Approval; on failure the state carries the reason.
 export function SubmitVariantForm({ action, contentAssetId, variant }: SubmitVariantFormProps) {
   const [state, formAction, pending] = useActionState(action, INITIAL_STATE);
@@ -19,7 +20,8 @@ export function SubmitVariantForm({ action, contentAssetId, variant }: SubmitVar
   return (
     <form action={formAction} className="flex flex-col gap-2">
       <input type="hidden" name="contentAssetId" value={contentAssetId} />
-      {state.message && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
+      <AudienceField audience={state.audience ?? ""} errors={state.fieldErrors?.audience} />
+      {state.message && !state.fieldErrors?.audience && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
       <button
         type="submit"
         disabled={pending}
