@@ -1,5 +1,6 @@
-import type { Execution } from "@/generated/prisma/client";
+import type { Execution, ProposedAction } from "@/generated/prisma/client";
 import { appendActivity } from "@/lib/app/activity-log";
+import { lockApproval } from "@/lib/app/approvals";
 import type { ChannelAdapter, ChannelAdapters, Delivery, DeliveryResult } from "@/lib/channels/channel-adapter";
 import { db } from "@/lib/db";
 import { verifyPayload } from "./proposed-action-payload";
@@ -36,19 +37,10 @@ function idempotencyKeyFor(approvalId: string): string {
 // hash matches the stored one, and records the attempt. Only the re-validated payload
 // is sent, never the raw stored JSON.
 export async function executeApproval(approvalId: string, channels: ChannelAdapters): Promise<ExecutionOutcome> {
-  const approval = await db.approval.findUnique({ where: { id: approvalId }, include: { proposedAction: true } });
-  if (!approval) return refused("NOT_FOUND");
-  if (approval.status !== "APPROVED") return refused("NOT_APPROVED");
-  const { proposedAction } = approval;
-  const payload = verifyPayload(proposedAction.payload, proposedAction.payloadHash);
-  if (!payload) return refused("PAYLOAD_CHANGED");
-  const delivery: Delivery = { idempotencyKey: idempotencyKeyFor(approvalId), payload };
-  // The unique (approvalId, attempt) makes this a claim: a second run creates nothing.
-  const [execution] = await db.execution.createManyAndReturn({
-    data: [{ approvalId, idempotencyKey: delivery.idempotencyKey, attempt: FIRST_ATTEMPT }],
-    skipDuplicates: true,
-  });
-  if (!execution) return refused("ALREADY_ATTEMPTED");
+  const claim = await claimAttempt(approvalId);
+  if (typeof claim === "string") return refused(claim);
+  const { execution, proposedAction, delivery } = claim;
+  const { payload } = delivery;
   const result = await deliverOrRecordFailure(execution, channels[payload.channel], delivery);
   await db.$transaction(async (tx) => {
     await tx.execution.update({
@@ -65,6 +57,36 @@ export async function executeApproval(approvalId: string, channels: ChannelAdapt
     });
   });
   return { status: "SUCCEEDED", executionId: execution.id };
+}
+
+interface Claim {
+  execution: Execution;
+  proposedAction: ProposedAction;
+  delivery: Delivery;
+}
+
+// Checks the Approval and records the attempt in one transaction that holds the
+// Approval's row lock, so no status change can land between the check and the claim. A
+// supersede takes the same lock (src/lib/app/content-assets.ts): it either commits first
+// and is seen here, or waits and then finds this attempt.
+function claimAttempt(approvalId: string): Promise<Claim | ExecutionRefusal> {
+  return db.$transaction(async (tx) => {
+    if (!(await lockApproval(tx, approvalId))) return "NOT_FOUND";
+    // Read after the lock, so it sees any change that committed while this waited.
+    const approval = await tx.approval.findUniqueOrThrow({ where: { id: approvalId }, include: { proposedAction: true } });
+    if (approval.status !== "APPROVED") return "NOT_APPROVED";
+    const { proposedAction } = approval;
+    const payload = verifyPayload(proposedAction.payload, proposedAction.payloadHash);
+    if (!payload) return "PAYLOAD_CHANGED";
+    const delivery: Delivery = { idempotencyKey: idempotencyKeyFor(approvalId), payload };
+    // The unique (approvalId, attempt) makes this a claim: a second run creates nothing.
+    const [execution] = await tx.execution.createManyAndReturn({
+      data: [{ approvalId, idempotencyKey: delivery.idempotencyKey, attempt: FIRST_ATTEMPT }],
+      skipDuplicates: true,
+    });
+    if (!execution) return "ALREADY_ATTEMPTED";
+    return { execution, proposedAction, delivery };
+  });
 }
 
 function refused(reason: ExecutionRefusal): ExecutionOutcome {

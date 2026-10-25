@@ -137,6 +137,14 @@ export async function proposeAction(tx: Prisma.TransactionClient, actor: Actor, 
   return approval;
 }
 
+// Locks the Approval's row until the transaction ends; false when there is no such
+// Approval. Claiming an Execution and superseding both take this lock first, then read
+// the Approval, so each sees the other's committed change.
+export async function lockApproval(tx: Prisma.TransactionClient, approvalId: string): Promise<boolean> {
+  const locked = await tx.$queryRaw<unknown[]>`SELECT 1 FROM "Approval" WHERE "id" = ${approvalId} FOR UPDATE`;
+  return locked.length === 1;
+}
+
 // What deciding needs to know about the Approval's Proposed Action.
 function findToDecide(tx: Prisma.TransactionClient, workspaceId: string, approvalId: string) {
   return tx.approval.findFirst({

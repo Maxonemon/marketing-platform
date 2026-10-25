@@ -9,7 +9,7 @@ import type { ChannelAdapter } from "@/lib/channels/channel-adapter";
 import { createMockChannel } from "@/lib/channels/mock-channel";
 import { db } from "@/lib/db";
 import { addTestMember, createTestApproval, createTestBrand, createTestUser, createTestWorkspace, fakeVariants } from "@/test/fixtures";
-import { DELIVERY_FAILED, executeApproval } from "./execution-service";
+import { DELIVERY_FAILED, executeApproval, type ExecutionOutcome } from "./execution-service";
 
 const POST_TEXT = "Our autumn blend lands Monday: cocoa, cherry and a long, warm finish.";
 
@@ -21,6 +21,9 @@ const EXPECTED_PAYLOAD = {
   audience: null,
   timing: { kind: "AS_SOON_AS_APPROVED" },
 };
+
+// Long enough for an Execution started meanwhile to reach its claim.
+const SUPERSEDE_HOLD_MS = 1000;
 
 // approve's background start; these tests run the Execution themselves.
 const startNothing: StartExecution = async () => {};
@@ -136,6 +139,24 @@ describe("the execution service", () => {
       ok: true,
       value: { proposedAction: { payload: null }, executions: [] },
     });
+  });
+
+  // A supersede that commits while the Execution is between reading the Approval and
+  // claiming its attempt must still stop it. The test holds the change uncommitted while
+  // the Execution runs, then commits it.
+  it("refuses an Approval superseded while the Execution was starting, and sends nothing", async () => {
+    const { approvalId } = await setUpApproved();
+    const channel = createMockChannel();
+    let execution: Promise<ExecutionOutcome> | undefined;
+
+    await db.$transaction(async (tx) => {
+      await tx.approval.update({ where: { id: approvalId }, data: { status: "SUPERSEDED" } });
+      execution = executeApproval(approvalId, { MOCK: channel });
+      await new Promise((resolve) => setTimeout(resolve, SUPERSEDE_HOLD_MS));
+    });
+
+    expect(await execution).toEqual({ status: "REFUSED", reason: "NOT_APPROVED" });
+    expect(channel.deliveries).toEqual([]);
   });
 
   // Inngest may deliver an event twice. Retries come with ticket 10.
