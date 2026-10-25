@@ -169,6 +169,7 @@ function ApprovalContext({ approval: { task, contentAsset }, workspaceSlug }: Ap
       <dt className="font-medium">Content Asset</dt>
       <dd className="flex flex-col gap-1">
         <span>Variant {contentAsset.variant}, the editable draft it was proposed from, as it is now:</span>
+        {contentAsset.subject && <span className="wrap-break-word text-zinc-500">Subject: {contentAsset.subject}</span>}
         <span className="wrap-break-word whitespace-pre-wrap text-zinc-500">{contentAsset.body}</span>
       </dd>
       <dt className="font-medium">Brief</dt>
@@ -193,6 +194,12 @@ function ProposedActionFields({ payload, payloadHash }: ProposedActionFieldsProp
       <dd>{payload.audience ?? <em className="text-zinc-500">None: the Channel takes none</em>}</dd>
       <dt className="font-medium">Timing</dt>
       <dd>{TIMING_LABELS[payload.timing.kind]}</dd>
+      {payload.content.subject && (
+        <>
+          <dt className="font-medium">Subject</dt>
+          <dd className="wrap-break-word rounded border border-zinc-500/30 p-2">{payload.content.subject}</dd>
+        </>
+      )}
       <dt className="font-medium">Content</dt>
       <dd className="wrap-break-word whitespace-pre-wrap rounded border border-zinc-500/30 p-2">{payload.content.body}</dd>
       <dt className="font-medium">Payload hash</dt>

@@ -40,11 +40,16 @@ async function ReviewView({ params }: ReviewPageProps) {
           Pick the Variant to publish. Submitting turns it into a Proposed Action that an Owner or Admin must approve.
         </p>
       </div>
-      <ol className="flex flex-col gap-4">
-        {variants.map(({ id, variant, body }) => (
-          <li key={id} className="flex flex-col gap-2 rounded border border-zinc-500/30 p-3">
-            <h2 className="text-sm font-semibold">Variant {variant}</h2>
-            <p className="wrap-break-word whitespace-pre-wrap">{body}</p>
+      <ol className="grid gap-4 md:grid-cols-3">
+        {variants.map(({ id, variant, subject, body }) => (
+          <li key={id} className="flex min-w-0 flex-col gap-2 rounded border border-zinc-500/30 p-3 text-sm">
+            <h2 className="font-semibold">Variant {variant}</h2>
+            {subject && (
+              <p className="wrap-break-word">
+                <span className="font-medium">Subject:</span> {subject}
+              </p>
+            )}
+            <p className="flex-1 wrap-break-word whitespace-pre-wrap">{body}</p>
             <SubmitVariantForm action={submitAction} contentAssetId={id} variant={variant} />
           </li>
         ))}

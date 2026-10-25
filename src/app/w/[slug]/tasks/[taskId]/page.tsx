@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { getTask, type TaskDetail } from "@/lib/app/tasks";
+import { getTask, type TaskAiUsage, type TaskDetail } from "@/lib/app/tasks";
 import { CHANNEL_LABELS, CONTENT_TYPE_LABELS } from "@/lib/content-options";
 import { requireWorkspace } from "../../require-workspace";
 import { TASK_STATUS_LABELS, TaskTimes, taskTitle } from "../task-display";
@@ -56,6 +56,12 @@ async function TaskDetailView({ params }: TaskDetailPageProps) {
         <h2 className="text-lg font-semibold">Result</h2>
         <TaskResult task={task} workspaceSlug={workspace.slug} />
       </section>
+      {task.aiUsage && (
+        <section className="flex flex-col gap-2 text-sm">
+          <h2 className="text-lg font-semibold">AI usage</h2>
+          <AiUsage usage={task.aiUsage} />
+        </section>
+      )}
       {task.error && (
         <section className="flex flex-col gap-2 text-sm">
           <h2 className="text-lg font-semibold">Error</h2>
@@ -94,4 +100,24 @@ function TaskResult({ task, workspaceSlug }: TaskResultProps) {
     case "COMPLETED":
       return <p>{variants} written.</p>;
   }
+}
+
+const tokens = new Intl.NumberFormat("en-US");
+// Small amounts need more than cents: a short Task can cost a hundredth of a cent.
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumSignificantDigits: 3 });
+const MICRO_USD_PER_USD = 1_000_000;
+
+function AiUsage({ usage }: { usage: TaskAiUsage }) {
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+      <dt className="font-medium">Model</dt>
+      <dd>{usage.model}</dd>
+      <dt className="font-medium">Tokens</dt>
+      <dd>
+        {tokens.format(usage.inputTokens)} in, {tokens.format(usage.outputTokens)} out
+      </dd>
+      <dt className="font-medium">Estimated cost</dt>
+      <dd>{usd.format(usage.costMicroUsd / MICRO_USD_PER_USD)}</dd>
+    </dl>
+  );
 }
