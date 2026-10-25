@@ -4,6 +4,7 @@ import { db, isUniqueViolation } from "@/lib/db";
 import { APPROVAL_COMMENT_MAX_LENGTH } from "@/lib/limits";
 import { requireRole, type Actor } from "@/lib/permissions";
 import { hashPayload, verifyPayload, type ProposedActionPayload } from "@/lib/workflows/proposed-action-payload";
+import { ruleViolationsSchema, type RuleViolation } from "@/lib/brand-rules";
 import { appendActivity } from "./activity-log";
 import { fail, ok, type Result } from "./result";
 import { taskSummaryInclude, toTaskSummary, type TaskSummary } from "./tasks";
@@ -28,6 +29,8 @@ export interface ApprovalDetail {
     // null when the stored payload fails its hash check: it will never be executed.
     payload: ProposedActionPayload | null;
     payloadHash: string;
+    // The Brand rules its text broke when it was proposed: warnings, never a block.
+    violations: RuleViolation[];
     createdBy: string;
     createdAt: Date;
   };
@@ -46,12 +49,12 @@ export interface ExecutionSummary {
   finishedAt: Date | null;
 }
 
-// What to propose: a Content Asset as it is now, who it reaches, and the Task it came
-// from (its Brand, Channel and content type).
+// What to propose: a Content Asset as it is now (with the Brand rules its text breaks),
+// who it reaches, and the Task it came from (its Brand, Channel and content type).
 export interface Proposal {
   workspaceId: string;
   task: TaskSummary;
-  contentAsset: { id: string; subject: string | null; body: string };
+  contentAsset: Pick<ReviewVariant, "id" | "subject" | "body" | "violations">;
   audience: string | null;
   // The Rejected Approval this one resubmits.
   resubmissionOfId?: string;
@@ -119,7 +122,15 @@ export async function proposeAction(tx: Prisma.TransactionClient, actor: Actor, 
   const payload = payloadOf(proposal);
   const payloadHash = hashPayload(payload);
   const proposedAction = await tx.proposedAction.create({
-    data: { workspaceId, brandId: task.brand.id, contentAssetId: contentAsset.id, createdById: actor.userId, payload, payloadHash },
+    data: {
+      workspaceId,
+      brandId: task.brand.id,
+      contentAssetId: contentAsset.id,
+      createdById: actor.userId,
+      payload,
+      payloadHash,
+      ruleViolations: contentAsset.violations,
+    },
   });
   // The link is written as a plain foreign key, so a second resubmission breaks its
   // unique index. A nested connect would instead unlink the earlier resubmission.
@@ -215,6 +226,7 @@ export async function getApproval(actor: Actor, workspaceId: string, approvalId:
       payload: verifyPayload(proposedAction.payload, proposedAction.payloadHash),
       payloadHash: proposedAction.payloadHash,
       createdBy: proposedAction.createdBy.name,
+      violations: ruleViolationsSchema.parse(proposedAction.ruleViolations),
       createdAt: proposedAction.createdAt,
     },
     contentAsset: toReviewVariant(contentAsset),
@@ -336,7 +348,7 @@ export async function resubmit(actor: Actor, workspaceId: string, approvalId: st
         select: {
           payload: true,
           payloadHash: true,
-          contentAsset: { select: { id: true, subject: true, body: true, task: { include: taskSummaryInclude } } },
+          contentAsset: { select: { ...reviewVariantSelect, task: { include: taskSummaryInclude } } },
         },
       },
     },
@@ -350,7 +362,7 @@ export async function resubmit(actor: Actor, workspaceId: string, approvalId: st
   const proposal: Proposal = {
     workspaceId,
     task: toTaskSummary(task),
-    contentAsset,
+    contentAsset: toReviewVariant(contentAsset),
     audience: previous.audience,
     resubmissionOfId: approvalId,
   };

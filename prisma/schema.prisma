@@ -203,7 +203,9 @@ model ContentAsset {
 // An immutable snapshot of exactly what would be published or sent (ADR-0001). It is
 // written once and never updated: no code updates it, and every material change adds a
 // new row. `payload` is the canonical payload and `payloadHash` its SHA-256
-// (src/lib/workflows/proposed-action-payload.ts).
+// (src/lib/workflows/proposed-action-payload.ts). `ruleViolations` are the Brand rules its
+// text broke when it was proposed (src/lib/brand-rules.ts): warnings shown with it, never
+// part of the payload or its hash.
 model ProposedAction {
   id             String   @id @default(cuid())
   workspaceId    String
@@ -212,6 +214,7 @@ model ProposedAction {
   createdById    String
   payload        Json
   payloadHash    String
+  ruleViolations Json     @default("[]")
   createdAt      DateTime @default(now())
 
   workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

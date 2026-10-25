@@ -99,10 +99,8 @@ async function ApprovalView({ params }: ApprovalPageProps) {
       </section>
       <section className="flex flex-col gap-2">
         <h2 className="text-lg font-semibold">Brand rules</h2>
-        <p className="text-sm text-zinc-500">
-          Checked on the Content Asset&apos;s text as it was last written or edited. Warnings only: you decide.
-        </p>
-        <RuleViolations violations={approval.contentAsset.violations} />
+        <p className="text-sm text-zinc-500">Checked on the proposed text when it was submitted. Warnings only: you decide.</p>
+        <RuleViolations violations={proposedAction.violations} />
       </section>
       {approval.status === "PENDING" && <Decision approval={approval} workspace={workspace} />}
       {approval.status === "REJECTED" && <Resubmission approval={approval} workspace={workspace} />}

@@ -136,6 +136,7 @@ function ProposalItem({ entry, workspaceSlug }: ProposalItemProps) {
             </p>
           )}
           <p className="wrap-break-word whitespace-pre-wrap text-zinc-500">{entry.payload.content.body}</p>
+          <RuleViolations violations={entry.violations} />
         </>
       ) : (
         <p role="alert" className="text-red-600">

@@ -104,10 +104,9 @@ export async function submitReview(
     if (!(await lockOpenReview(tx, workspaceId, taskId))) return fail("NOT_FOUND", REVIEW_NOT_FOUND);
     await tx.task.update({ where: { id: taskId }, data: { status: "COMPLETED" } });
     // Read under the lock: an edit that committed after the Review was read is included.
-    const contentAsset = await tx.contentAsset.findUniqueOrThrow({
-      where: { id: contentAssetId },
-      select: { id: true, subject: true, body: true },
-    });
+    const contentAsset = toReviewVariant(
+      await tx.contentAsset.findUniqueOrThrow({ where: { id: contentAssetId }, select: reviewVariantSelect }),
+    );
     return ok(await proposeAction(tx, actor, { workspaceId, task, contentAsset, audience }));
   });
 }

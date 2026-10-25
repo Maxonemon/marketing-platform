@@ -134,6 +134,24 @@ describe("editing after submission", () => {
     });
   });
 
+  it("leaves the old Approval with the Brand rule warnings of the text it proposed", async () => {
+    const { mia, workspaceId, approvalId, contentAssetId } = await setUpSubmitted();
+
+    const result = await editProposedContent(mia, workspaceId, approvalId, { body: `${POST_TEXT} Free shipping.` });
+
+    if (!result.ok) throw new Error("expected the edit to succeed");
+    const freeWarning = [{ kind: "PROHIBITED_PHRASE", phrase: "free" }];
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({ ok: true, value: { proposedAction: { violations: [] } } });
+    expect(await getApproval(mia, workspaceId, result.value.id)).toMatchObject({
+      ok: true,
+      value: { proposedAction: { violations: freeWarning } },
+    });
+    expect(await getContentAsset(mia, workspaceId, contentAssetId)).toMatchObject({
+      ok: true,
+      value: { violations: freeWarning, proposals: [{ violations: freeWarning }, { violations: [] }] },
+    });
+  });
+
   it("is refused when nothing changed, and supersedes nothing", async () => {
     const { mia, workspaceId, approvalId, contentAssetId } = await setUpSubmitted();
 

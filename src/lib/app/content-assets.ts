@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Approval, ApprovalStatus, Prisma } from "@/generated/prisma/client";
+import { ruleViolationsSchema, type RuleViolation } from "@/lib/brand-rules";
 import { db } from "@/lib/db";
 import { requireRole, type Actor } from "@/lib/permissions";
 import { hashPayload, verifyPayload, type ProposedActionPayload } from "@/lib/workflows/proposed-action-payload";
@@ -21,6 +22,8 @@ export interface ProposalHistoryEntry {
   // null when the stored payload fails its hash check: it will never be executed.
   payload: ProposedActionPayload | null;
   payloadHash: string;
+  // The Brand rules its text broke when it was proposed.
+  violations: RuleViolation[];
   createdBy: string;
   createdAt: Date;
   approval: {
@@ -74,6 +77,7 @@ export async function getContentAsset(
       proposedActionId: proposedAction.id,
       payload: verifyPayload(proposedAction.payload, proposedAction.payloadHash),
       payloadHash: proposedAction.payloadHash,
+      violations: ruleViolationsSchema.parse(proposedAction.ruleViolations),
       createdBy: proposedAction.createdBy.name,
       createdAt: proposedAction.createdAt,
       approval: proposedAction.approval && {
@@ -120,7 +124,8 @@ export async function editProposedContent(
   if (!audience.success) {
     return fail("INVALID_INPUT", "Check the highlighted fields.", { audience: z.flattenError(audience.error).formErrors });
   }
-  const proposal = { workspaceId, task, contentAsset: { id: contentAsset.id, ...content.value }, audience: audience.data };
+  const violations = checkContent(content.value, brand);
+  const proposal = { workspaceId, task, contentAsset: { id: contentAsset.id, ...content.value, violations }, audience: audience.data };
   if (hashPayload(payloadOf(proposal)) === editedHash) return fail("INVALID_INPUT", NOTHING_CHANGED);
 
   return db.$transaction(async (tx): Promise<Result<Approval>> => {
@@ -133,7 +138,7 @@ export async function editProposedContent(
     if (!canBeSuperseded(current.status, current.executions)) return fail("CONFLICT", NOT_EDITABLE);
     await tx.contentAsset.update({
       where: { id: contentAsset.id },
-      data: { ...content.value, ruleViolations: checkContent(content.value, brand) },
+      data: { ...content.value, ruleViolations: violations },
     });
     const approval = await proposeAction(tx, actor, proposal);
     await tx.approval.update({ where: { id: approvalId }, data: { status: "SUPERSEDED", supersededById: approval.id } });
