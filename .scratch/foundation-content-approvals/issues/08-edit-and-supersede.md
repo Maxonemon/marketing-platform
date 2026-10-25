@@ -6,7 +6,7 @@ Spec: [../spec.md](../spec.md) (stories 38–39, 41, 54–56, 58). Follows ADR-0
 
 **Blocked by:** 04 (Submit → Approve → mock Execution)
 
-**Status:** done (2026-10-25). Verified by `pnpm check` (19 test files, 190 tests), plus the audience follow-up. No browser run yet. An attempt that is STARTED blocks superseding as well as a SUCCEEDED one (it may already be going out); a FAILED one doesn't. The audience is optional free text on one line. History is on the new Content Asset page.
+**Status:** done, closed (2026-10-25). Verified by typecheck, lint and 195 tests in 19 files: 15 files in one full run, the other 4 run alone after that run collided with the Stop hook's (Neon was slow that day: 20 s timeouts, expired transactions). No browser run. An attempt that is STARTED blocks superseding as well as a SUCCEEDED one (it may already be going out); a FAILED one doesn't. The audience is optional free text on one line. History is on the new Content Asset page.
 
 **Run `security-reviewer` before commit** (approvals + execution).
 
