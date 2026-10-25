@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { authEnv, dbEnv, inngestEnv } from "./env";
+import { aiEnv, authEnv, dbEnv, inngestEnv } from "./env";
 
 const SECRET = "s".repeat(32);
 
@@ -55,5 +55,39 @@ describe("env checks", () => {
     vi.stubEnv("NODE_ENV", "production");
 
     expect(() => inngestEnv("dev")).toThrow("Missing or invalid environment variables: INNGEST_DEV");
+  });
+
+  it("requires a priced AI model, and the Mistral API key for a Mistral model", () => {
+    vi.stubEnv("AI_MODEL", "gpt-unknown");
+    vi.stubEnv("MISTRAL_API_KEY", "");
+
+    expect(() => aiEnv()).toThrow(/^Missing or invalid environment variables: AI_MODEL$/);
+
+    vi.stubEnv("AI_MODEL", "mistral-small-2603");
+
+    expect(() => aiEnv()).toThrow(/^Missing or invalid environment variables: MISTRAL_API_KEY$/);
+
+    vi.stubEnv("MISTRAL_API_KEY", "mistral-secret-key");
+
+    expect(aiEnv()).toEqual({ provider: "mistral", model: "mistral-small-2603", mistralApiKey: "mistral-secret-key" });
+  });
+
+  it("names a rejected AI setting without revealing the API key", () => {
+    vi.stubEnv("AI_MODEL", "not-a-model");
+    vi.stubEnv("MISTRAL_API_KEY", "mistral-secret-key");
+
+    expect(() => aiEnv()).toThrow(expect.objectContaining({ message: expect.not.stringContaining("mistral-secret-key") }));
+  });
+
+  // The fake model writes placeholders: fine for trying the app locally, never in production.
+  it("allows the fake AI model without a key, except in production", () => {
+    vi.stubEnv("AI_MODEL", "fake");
+    vi.stubEnv("MISTRAL_API_KEY", "");
+
+    expect(aiEnv()).toEqual({ provider: "fake", model: "fake" });
+
+    vi.stubEnv("NODE_ENV", "production");
+
+    expect(() => aiEnv()).toThrow("Missing or invalid environment variables: AI_MODEL");
   });
 });

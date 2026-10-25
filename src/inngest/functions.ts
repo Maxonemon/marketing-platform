@@ -1,18 +1,9 @@
-import { VARIANT_COUNT } from "@/lib/ai/content-agent";
-import { createFakeAiProvider } from "@/lib/ai/fake-provider";
+import { createAiProvider } from "@/lib/ai/create-provider";
 import { runContentTask } from "@/lib/app/content-requests";
 import { createMockChannel } from "@/lib/channels/mock-channel";
+import { aiEnv } from "@/lib/env";
 import { executeApproval } from "@/lib/workflows/execution-service";
 import { approvalApproved, contentRequested, inngest } from "./client";
-
-// Until the real AI provider is wired in (ticket 06 part B), the content agent gets
-// this placeholder from the fake provider, so the whole flow can be tried without a bill.
-const PLACEHOLDER_VARIANTS = {
-  variants: Array.from({ length: VARIANT_COUNT }, (_, index) => ({
-    subject: `Placeholder subject ${index + 1}`,
-    body: `Placeholder Variant ${index + 1}, written by the fake AI provider.`,
-  })),
-};
 
 // A transient AI error (rate limit, outage) is retried this many times, with Inngest's
 // backoff between attempts; any other failure is recorded on the Task at once.
@@ -29,7 +20,7 @@ class ContentTaskRetry extends Error {
 export const runContentTaskFunction = inngest.createFunction(
   { id: "run-content-task", triggers: [contentRequested], retries: CONTENT_TASK_RETRIES },
   async ({ event, attempt, maxAttempts = CONTENT_TASK_RETRIES + 1 }) => {
-    const ai = createFakeAiProvider(() => PLACEHOLDER_VARIANTS);
+    const ai = createAiProvider(aiEnv());
     const outcome = await runContentTask(event.data.taskId, ai, { isFinalAttempt: attempt + 1 >= maxAttempts });
     if (outcome === "RETRY") throw new ContentTaskRetry("Transient AI error: the content Task will be retried.");
   },

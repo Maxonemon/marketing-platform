@@ -14,6 +14,14 @@ export const AI_MODELS = {
 } as const satisfies Record<string, ModelPrice>;
 
 export type AiModel = keyof typeof AI_MODELS;
+type ModelsOf<Provider extends string> = {
+  [Model in AiModel]: (typeof AI_MODELS)[Model]["provider"] extends Provider ? Model : never;
+}[AiModel];
+export type MistralModel = ModelsOf<"mistral">;
+
+export function isMistralModel(model: AiModel): model is MistralModel {
+  return AI_MODELS[model].provider === "mistral";
+}
 
 interface ModelPrice {
   provider: string;

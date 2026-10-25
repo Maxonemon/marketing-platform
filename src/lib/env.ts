@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AI_MODELS, isMistralModel, type AiModel, type MistralModel } from "@/lib/ai/pricing";
 
 // Required env vars, checked lazily and once at startup (src/instrumentation.ts).
 // Errors name the missing or invalid variables, never their values.
@@ -21,8 +22,21 @@ const inngestCloudEnvSchema = z.object({
   INNGEST_SIGNING_KEY: z.string().min(1),
 });
 
+// AI_MODEL names a model of src/lib/ai/pricing.ts, and with it the provider that
+// serves it. Each provider needs its own key; the fake one needs none.
+const aiModelEnvSchema = z.object({
+  AI_MODEL: z.enum(Object.keys(AI_MODELS) as [AiModel, ...AiModel[]]),
+});
+
+const mistralEnvSchema = z.object({
+  MISTRAL_API_KEY: z.string().min(1),
+});
+
 export type DbEnv = z.infer<typeof dbEnvSchema>;
 export type AuthEnv = z.infer<typeof authEnvSchema>;
+export type AiEnv =
+  | { provider: "fake"; model: "fake" }
+  | { provider: "mistral"; model: MistralModel; mistralApiKey: string };
 
 function parseEnv<T>(schema: z.ZodType<T>): T {
   const result = schema.safeParse(process.env);
@@ -47,4 +61,17 @@ export function inngestEnv(mode: "dev" | "cloud"): void {
   } else if (process.env.NODE_ENV === "production") {
     throw new Error("Missing or invalid environment variables: INNGEST_DEV");
   }
+}
+
+// The fake model writes placeholders, so production must never run on it.
+export function aiEnv(): AiEnv {
+  const { AI_MODEL: model } = parseEnv(aiModelEnvSchema);
+  if (isMistralModel(model)) {
+    const { MISTRAL_API_KEY } = parseEnv(mistralEnvSchema);
+    return { provider: "mistral", model, mistralApiKey: MISTRAL_API_KEY };
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing or invalid environment variables: AI_MODEL");
+  }
+  return { provider: "fake", model };
 }
