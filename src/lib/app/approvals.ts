@@ -161,10 +161,12 @@ export function payloadOf({ task, contentAsset, audience }: Pick<Proposal, "task
 }
 
 // Locks the Approval's row until the transaction ends; false when there is no such
-// Approval. Claiming an Execution and superseding both take this lock first, then read
-// the Approval, so each sees the other's committed change.
+// Approval. Claiming an Execution and editing both take this lock first, then read the
+// Approval, so each sees the other's committed change; deciding waits for it too. NO KEY
+// UPDATE, so rows that only reference the Approval (a resubmission at the same moment)
+// aren't blocked by it, which would deadlock on the unique resubmission link.
 export async function lockApproval(tx: Prisma.TransactionClient, approvalId: string): Promise<boolean> {
-  const locked = await tx.$queryRaw<unknown[]>`SELECT 1 FROM "Approval" WHERE "id" = ${approvalId} FOR UPDATE`;
+  const locked = await tx.$queryRaw<unknown[]>`SELECT 1 FROM "Approval" WHERE "id" = ${approvalId} FOR NO KEY UPDATE`;
   return locked.length === 1;
 }
 

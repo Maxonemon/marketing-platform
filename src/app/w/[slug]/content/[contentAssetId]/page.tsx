@@ -92,8 +92,10 @@ function Edit({ contentAsset, workspaceId, workspaceSlug }: EditProps) {
     <section className="flex flex-col gap-2">
       <h2 className="text-lg font-semibold">Edit</h2>
       <p className="text-sm text-zinc-500">
-        Any change to the text or the audience makes a new Proposed Action with a new Pending Approval. The current one is
-        marked Superseded, even if it was already approved, so it can never go out.
+        Any change to the text or the audience makes a new Proposed Action with a new Pending Approval.{" "}
+        {latest.approval.status === "REJECTED"
+          ? "It resubmits the rejected one, which stays as it is."
+          : "The current one is marked Superseded, even if it was already approved, so it can never go out."}
       </p>
       <EditProposedContentForm
         action={editProposedContentAction.bind(null, workspaceId, workspaceSlug, latest.approval.id)}

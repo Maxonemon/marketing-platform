@@ -4,7 +4,7 @@ import { createMockChannel } from "@/lib/channels/mock-channel";
 import { executeApproval } from "@/lib/workflows/execution-service";
 import { addTestMember, createTestApproval, createTestBrand, createTestUser, createTestWorkspace } from "@/test/fixtures";
 import { listActivity } from "./activity-log";
-import { approve, getApproval, listPendingApprovals, reject, type StartExecution } from "./approvals";
+import { approve, getApproval, listPendingApprovals, reject, resubmit, type StartExecution } from "./approvals";
 import { editProposedContent, getContentAsset } from "./content-assets";
 
 const POST_TEXT = "Our autumn blend lands Monday: cocoa, cherry and a long, warm finish.";
@@ -203,14 +203,61 @@ describe("editing after submission", () => {
     expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({ ok: true, value: { status: "APPROVED" } });
   });
 
-  it("is refused for a Rejected Approval, which is resubmitted instead", async () => {
+  it("resubmits a Rejected Approval with the edit, and leaves the rejected one as it was", async () => {
     const { owner, mia, workspaceId, approvalId } = await setUpSubmitted();
     await reject(owner, workspaceId, approvalId, { comment: "Say Tuesday." });
+    const before = await getApproval(mia, workspaceId, approvalId);
+    if (!before.ok) throw new Error("expected the rejected Approval");
+
+    const result = await editProposedContent(mia, workspaceId, approvalId, { body: EDITED_TEXT });
+
+    if (!result.ok) throw new Error("expected the edit to succeed");
+    expect(await getApproval(mia, workspaceId, result.value.id)).toMatchObject({
+      ok: true,
+      value: {
+        status: "PENDING",
+        resubmissionOfId: approvalId,
+        supersedesId: null,
+        proposedAction: { payload: { ...FIRST_PAYLOAD, content: { body: EDITED_TEXT } } },
+      },
+    });
+    // Only the link to its resubmission is new; the rejected records read as before.
+    expect(await getApproval(mia, workspaceId, approvalId)).toEqual({
+      ok: true,
+      value: { ...before.value, resubmittedAsId: result.value.id, contentAsset: { ...before.value.contentAsset, body: EDITED_TEXT } },
+    });
+    expect(await listActivity(owner, workspaceId)).toMatchObject({
+      ok: true,
+      value: [{ event: "PROPOSED_ACTION_SUBMITTED", actorName: "Mia", approvalId: result.value.id }, { event: "APPROVAL_REJECTED" }, {}, {}],
+    });
+  });
+
+  it("is refused for a Rejected Approval that was already resubmitted", async () => {
+    const { owner, mia, workspaceId, approvalId, contentAssetId } = await setUpSubmitted();
+    await reject(owner, workspaceId, approvalId, { comment: "Say Tuesday." });
+    await resubmit(mia, workspaceId, approvalId);
 
     const result = await editProposedContent(mia, workspaceId, approvalId, { body: EDITED_TEXT });
 
     expect(result).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
-    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({ ok: true, value: { status: "REJECTED" } });
+    expect(await getContentAsset(mia, workspaceId, contentAssetId)).toMatchObject({
+      ok: true,
+      value: { body: POST_TEXT, proposals: [{}, {}] },
+    });
+  });
+
+  it("resubmits a rejection once when an edit and a resubmit happen at the same moment", async () => {
+    const { owner, mia, workspaceId, approvalId, contentAssetId } = await setUpSubmitted();
+    await reject(owner, workspaceId, approvalId, { comment: "Say Tuesday." });
+
+    const outcomes = await Promise.all([
+      editProposedContent(mia, workspaceId, approvalId, { body: EDITED_TEXT }),
+      resubmit(owner, workspaceId, approvalId),
+    ]);
+
+    expect(outcomes.filter(({ ok }) => ok)).toHaveLength(1);
+    expect(outcomes.filter(({ ok }) => !ok)).toMatchObject([{ error: { code: "CONFLICT" } }]);
+    expect(await getContentAsset(mia, workspaceId, contentAssetId)).toMatchObject({ ok: true, value: { proposals: [{}, {}] } });
   });
 
   it("is refused for a version that was already superseded", async () => {

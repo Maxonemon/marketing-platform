@@ -152,7 +152,11 @@ function Resubmission({ approval, workspace }: ApprovalActionsProps) {
       <h2 className="text-lg font-semibold">Resubmit</h2>
       <p className="text-sm text-zinc-500">
         Proposes the Content Asset, as it is now, as a new Proposed Action with a new Pending Approval. This rejected
-        one stays as it is.
+        one stays as it is. To change the content first,{" "}
+        <Link href={`/w/${workspace.slug}/content/${approval.contentAsset.id}`} className="underline">
+          edit it
+        </Link>{" "}
+        instead: the edit is resubmitted.
       </p>
       <ResubmitForm action={resubmitAction.bind(null, workspace.id, workspace.slug, approval.id)} />
     </section>

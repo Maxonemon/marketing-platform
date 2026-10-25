@@ -21,8 +21,8 @@ Spec: [../spec.md](../spec.md) (stories 38–39, 41, 54–56, 58). Follows ADR-0
 
 - [x] The execution service reads the Approval's status, then claims the attempt in a separate step. A supersede that lands between the two could still let the old version go out once. Re-check that the Approval is still APPROVED in the same step that claims the attempt (e.g. a conditional insert or a row lock), and test it.
 
-**Open after this ticket** (decide before scheduling):
+**Follow-ups done in this ticket:**
 
-- [ ] A Rejected Approval can't be edited: resubmit proposes the Content Asset unchanged, so there is no way to fix rejected content first. Option: let an edit of a Rejected Approval propose the edited content as its resubmission.
-- [ ] Rule violations are stored on the Content Asset, so an older Approval shows the warnings of the current text, not of the text it proposed. Option: check each Proposed Action's payload text when it is shown, or store the violations with the Proposed Action.
-- [ ] Stale STARTED and ambiguous FAILED attempts are noted in ticket 10.
+- [x] Editing a Rejected Approval proposes the edited content as its resubmission; the rejected one stays as it was. An edit and a resubmit at the same moment give one resubmission.
+- [x] Each Proposed Action stores the Brand rule warnings of the text it proposed (migration 0012 backfills those whose text matches their Content Asset), so an older Approval shows its own warnings.
+- [x] Stale STARTED and ambiguous FAILED attempts are noted in ticket 10.

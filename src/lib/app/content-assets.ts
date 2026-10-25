@@ -1,11 +1,11 @@
 import { z } from "zod";
-import type { Approval, ApprovalStatus, Prisma } from "@/generated/prisma/client";
+import type { Approval, ApprovalStatus, ExecutionStatus, Prisma } from "@/generated/prisma/client";
 import { ruleViolationsSchema, type RuleViolation } from "@/lib/brand-rules";
-import { db } from "@/lib/db";
+import { db, isUniqueViolation } from "@/lib/db";
 import { requireRole, type Actor } from "@/lib/permissions";
 import { hashPayload, verifyPayload, type ProposedActionPayload } from "@/lib/workflows/proposed-action-payload";
 import { appendActivity } from "./activity-log";
-import { APPROVAL_NOT_FOUND, canBeSuperseded, lockApproval, payloadOf, proposeAction } from "./approvals";
+import { APPROVAL_NOT_FOUND, canBeSuperseded, lockApproval, payloadOf, proposeAction, type Proposal } from "./approvals";
 import { audienceSchema, checkContent, parseContent, type ContentInput } from "./content-edits";
 import { fail, ok, type Result } from "./result";
 import { taskSummaryInclude, toTaskSummary, type TaskSummary } from "./tasks";
@@ -30,7 +30,7 @@ export interface ProposalHistoryEntry {
     id: string;
     status: ApprovalStatus;
     supersededById: string | null;
-    // Whether an edit can still supersede it (see canBeSuperseded).
+    // Whether it can still be edited: superseded, or resubmitted with the edit (editModeOf).
     isEditable: boolean;
   } | null;
 }
@@ -50,7 +50,15 @@ const contentAssetDetailSelect = {
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     include: {
       createdBy: { select: { name: true } },
-      approval: { select: { id: true, status: true, supersededById: true, executions: { select: { status: true } } } },
+      approval: {
+        select: {
+          id: true,
+          status: true,
+          supersededById: true,
+          executions: { select: { status: true } },
+          resubmittedAs: { select: { id: true } },
+        },
+      },
     },
   },
 } satisfies Prisma.ContentAssetSelect;
@@ -84,20 +92,38 @@ export async function getContentAsset(
         id: proposedAction.approval.id,
         status: proposedAction.approval.status,
         supersededById: proposedAction.approval.supersededById,
-        isEditable: canBeSuperseded(proposedAction.approval.status, proposedAction.approval.executions),
+        isEditable: editModeOf(proposedAction.approval) !== null,
       },
     })),
   });
 }
 
+// How an edit of a version is proposed: by superseding its Approval while that is
+// allowed (canBeSuperseded), as the resubmission of a rejection not yet resubmitted, or
+// not at all once it was decided otherwise, replaced, or has gone or is going out.
+type EditMode = "SUPERSEDE" | "RESUBMIT" | null;
+
+interface EditableApproval {
+  status: ApprovalStatus;
+  executions: readonly { status: ExecutionStatus }[];
+  resubmittedAs: { id: string } | null;
+}
+
+function editModeOf({ status, executions, resubmittedAs }: EditableApproval): EditMode {
+  if (canBeSuperseded(status, executions)) return "SUPERSEDE";
+  return status === "REJECTED" && !resubmittedAs ? "RESUBMIT" : null;
+}
+
 // Any member can edit content after submission. Every material change (text, audience,
 // Channel or timing) needs a fresh decision, so one transaction updates the Content
-// Asset (its Brand rules checked again), proposes it as a new Proposed Action with a new
-// Pending Approval, and marks the edited version's Approval SUPERSEDED, pointing to the
-// new one, with both logged. The old Proposed Action is never written.
-// The edited version must still be supersedable (canBeSuperseded) when its row lock is
-// held, so of two edits of the same version only one goes through, and an Execution
-// either claimed its attempt first (the edit is refused) or finds it SUPERSEDED.
+// Asset (its Brand rules checked again) and proposes it as a new Proposed Action with a
+// new Pending Approval. A Pending or Approved-not-executed version is superseded by it; a
+// rejection gets it as its resubmission and stays as it was. Old Proposed Actions are
+// never written.
+// The mode is decided while the edited Approval's row lock is held, so of two edits of
+// the same version only one goes through, and an Execution either claimed its attempt
+// first (the edit is refused) or finds it SUPERSEDED. A resubmit at the same moment
+// loses to the unique resubmission link, or wins and this edit is refused.
 export async function editProposedContent(
   actor: Actor,
   workspaceId: string,
@@ -128,29 +154,45 @@ export async function editProposedContent(
   const proposal = { workspaceId, task, contentAsset: { id: contentAsset.id, ...content.value, violations }, audience: audience.data };
   if (hashPayload(payloadOf(proposal)) === editedHash) return fail("INVALID_INPUT", NOTHING_CHANGED);
 
-  return db.$transaction(async (tx): Promise<Result<Approval>> => {
-    await lockApproval(tx, approvalId);
-    // Read after the lock, so it sees an Execution claimed or an edit committed meanwhile.
-    const current = await tx.approval.findUniqueOrThrow({
-      where: { id: approvalId },
-      select: { status: true, executions: { select: { status: true } } },
+  try {
+    return await db.$transaction(async (tx): Promise<Result<Approval>> => {
+      await lockApproval(tx, approvalId);
+      // Read after the lock, so it sees an Execution claimed or an edit committed meanwhile.
+      const current = await tx.approval.findUniqueOrThrow({
+        where: { id: approvalId },
+        select: { status: true, executions: { select: { status: true } }, resubmittedAs: { select: { id: true } } },
+      });
+      const mode = editModeOf(current);
+      if (!mode) return fail("CONFLICT", NOT_EDITABLE);
+      await tx.contentAsset.update({ where: { id: contentAsset.id }, data: { ...content.value, ruleViolations: violations } });
+      if (mode === "RESUBMIT") return ok(await proposeAction(tx, actor, { ...proposal, resubmissionOfId: approvalId }));
+      return ok(await supersede(tx, actor, { approvalId, payloadHash: editedHash }, proposal));
     });
-    if (!canBeSuperseded(current.status, current.executions)) return fail("CONFLICT", NOT_EDITABLE);
-    await tx.contentAsset.update({
-      where: { id: contentAsset.id },
-      data: { ...content.value, ruleViolations: violations },
-    });
-    const approval = await proposeAction(tx, actor, proposal);
-    await tx.approval.update({ where: { id: approvalId }, data: { status: "SUPERSEDED", supersededById: approval.id } });
-    await appendActivity(tx, {
-      workspaceId,
-      actor,
-      brandId: task.brand.id,
-      taskId: task.id,
-      approvalId,
-      event: "APPROVAL_SUPERSEDED",
-      details: { payloadHash: editedHash, supersededById: approval.id },
-    });
-    return ok(approval);
+  } catch (error: unknown) {
+    // A resubmit of the same rejection committed first.
+    if (isUniqueViolation(error)) return fail("CONFLICT", NOT_EDITABLE);
+    throw error;
+  }
+}
+
+// Proposes the edit and marks the edited version's Approval SUPERSEDED, pointing to the
+// new one, with both logged. The caller holds the edited Approval's row lock.
+async function supersede(
+  tx: Prisma.TransactionClient,
+  actor: Actor,
+  edited: { approvalId: string; payloadHash: string },
+  proposal: Proposal,
+): Promise<Approval> {
+  const approval = await proposeAction(tx, actor, proposal);
+  await tx.approval.update({ where: { id: edited.approvalId }, data: { status: "SUPERSEDED", supersededById: approval.id } });
+  await appendActivity(tx, {
+    workspaceId: proposal.workspaceId,
+    actor,
+    brandId: proposal.task.brand.id,
+    taskId: proposal.task.id,
+    approvalId: edited.approvalId,
+    event: "APPROVAL_SUPERSEDED",
+    details: { payloadHash: edited.payloadHash, supersededById: approval.id },
   });
+  return approval;
 }
