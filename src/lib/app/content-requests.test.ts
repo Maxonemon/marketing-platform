@@ -177,6 +177,105 @@ describe("requesting content", () => {
   });
 });
 
+describe("retrying after an AI error", () => {
+  const OVERLOADED = "The AI service is busy. Try again in a moment.";
+
+  it("hands the Task back on a transient error, and the retry completes it", async () => {
+    const { mia, workspaceId, brandId } = await setUpBrand();
+    const { startTask } = recordingStartTask();
+    let calls = 0;
+    const ai = createFakeAiProvider(() => {
+      calls += 1;
+      if (calls === 1) throw new AiProviderError(OVERLOADED, { transient: true });
+      return POSTS;
+    });
+    const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, startTask);
+    if (!requested.ok) throw new Error("expected the request to succeed");
+    const taskId = requested.value.id;
+
+    expect(await runContentTask(taskId, ai, { isFinalAttempt: false })).toBe("RETRY");
+    expect(await getTask(mia, workspaceId, taskId)).toMatchObject({ ok: true, value: { status: "QUEUED", error: null } });
+
+    expect(await runContentTask(taskId, ai, { isFinalAttempt: false })).toBe("DONE");
+    expect(await getTask(mia, workspaceId, taskId)).toMatchObject({
+      ok: true,
+      value: { status: "IN_REVIEW", error: null, variantCount: 3 },
+    });
+    expect(await listActivity(mia, workspaceId)).toMatchObject({ ok: true, value: [{ event: "BRAND_CREATED" }] });
+  });
+
+  it("fails the Task when the last attempt hits a transient error", async () => {
+    const { mia, workspaceId, brandId } = await setUpBrand();
+    const { startTask } = recordingStartTask();
+    const ai = createFakeAiProvider(() => {
+      throw new AiProviderError(OVERLOADED, { transient: true });
+    });
+    const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, startTask);
+    if (!requested.ok) throw new Error("expected the request to succeed");
+
+    expect(await runContentTask(requested.value.id, ai, { isFinalAttempt: true })).toBe("DONE");
+
+    expect(await getTask(mia, workspaceId, requested.value.id)).toMatchObject({
+      ok: true,
+      value: { status: "FAILED", error: OVERLOADED },
+    });
+  });
+
+  it("fails the Task at once on a permanent error, with no retry", async () => {
+    const { mia, workspaceId, brandId } = await setUpBrand();
+    const { startTask } = recordingStartTask();
+    const ai = createFakeAiProvider(() => {
+      throw new AiProviderError("The AI service refused the request.");
+    });
+    const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, startTask);
+    if (!requested.ok) throw new Error("expected the request to succeed");
+
+    expect(await runContentTask(requested.value.id, ai, { isFinalAttempt: false })).toBe("DONE");
+
+    expect(await getTask(mia, workspaceId, requested.value.id)).toMatchObject({
+      ok: true,
+      value: { status: "FAILED", error: "The AI service refused the request." },
+    });
+  });
+});
+
+describe("AI usage", () => {
+  const USAGE = { model: "mistral-small-2603", inputTokens: 1200, outputTokens: 900 } as const;
+  // Mistral Small 4 at $0.15 / $0.60 per million tokens: 180 + 540 micro-dollars.
+  const COST_MICRO_USD = 720;
+
+  it("is recorded on the Task with its estimated cost", async () => {
+    const { mia, workspaceId, brandId } = await setUpBrand();
+    const { startTask } = recordingStartTask();
+    const ai = createFakeAiProvider(() => POSTS, { usage: USAGE });
+
+    const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, startTask);
+    if (!requested.ok) throw new Error("expected the request to succeed");
+    expect(await getTask(mia, workspaceId, requested.value.id)).toMatchObject({ ok: true, value: { aiUsage: null } });
+    await runContentTask(requested.value.id, ai);
+
+    expect(await getTask(mia, workspaceId, requested.value.id)).toMatchObject({
+      ok: true,
+      value: { status: "IN_REVIEW", aiUsage: { ...USAGE, costMicroUsd: COST_MICRO_USD } },
+    });
+  });
+
+  it("is recorded when the answer was billed but failed validation", async () => {
+    const { mia, workspaceId, brandId } = await setUpBrand();
+    const { startTask } = recordingStartTask();
+    const ai = createFakeAiProvider(() => ({ variants: [] }), { usage: USAGE });
+
+    const requested = await requestContent(mia, workspaceId, brandId, LAUNCH_POST, startTask);
+    if (!requested.ok) throw new Error("expected the request to succeed");
+    await runContentTask(requested.value.id, ai);
+
+    expect(await getTask(mia, workspaceId, requested.value.id)).toMatchObject({
+      ok: true,
+      value: { status: "FAILED", aiUsage: { ...USAGE, costMicroUsd: COST_MICRO_USD } },
+    });
+  });
+});
+
 describe("another Workspace's content", () => {
   it("can't be requested: its Brand is not found and nothing is queued", async () => {
     const { workspaceId, brandId } = await setUpBrand();

@@ -23,6 +23,17 @@ export interface TaskDetail extends TaskSummary {
   error: string | null;
   // The result: how many Variants the run saved as Content Assets.
   variantCount: number;
+  // What the AI call used and its estimated cost; null until the model has answered.
+  aiUsage: TaskAiUsage | null;
+}
+
+export interface TaskAiUsage {
+  // A key of src/lib/ai/pricing.ts when the Task ran.
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  // In millionths of a US dollar, at the model's prices when the Task ran.
+  costMicroUsd: number;
 }
 
 const TASK_NOT_FOUND = "Task not found.";
@@ -71,5 +82,13 @@ export async function getTask(actor: Actor, workspaceId: string, taskId: string)
     include: { ...taskSummaryInclude, _count: { select: { contentAssets: true } } },
   });
   if (!row) return fail("NOT_FOUND", TASK_NOT_FOUND);
-  return ok({ ...toTaskSummary(row), error: row.error, variantCount: row._count.contentAssets });
+  return ok({ ...toTaskSummary(row), error: row.error, variantCount: row._count.contentAssets, aiUsage: toAiUsage(row) });
+}
+
+type AiUsageFields = Pick<Prisma.TaskGetPayload<object>, "aiModel" | "inputTokens" | "outputTokens" | "costMicroUsd">;
+
+// The fields are written together (src/lib/app/content-requests.ts): all set or all null.
+function toAiUsage({ aiModel, inputTokens, outputTokens, costMicroUsd }: AiUsageFields): TaskAiUsage | null {
+  if (aiModel === null || inputTokens === null || outputTokens === null || costMicroUsd === null) return null;
+  return { model: aiModel, inputTokens, outputTokens, costMicroUsd };
 }

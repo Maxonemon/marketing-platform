@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { Task } from "@/generated/prisma/client";
-import { writeVariants, type Variant } from "@/lib/ai/content-agent";
-import { AiProviderError, type AiProvider } from "@/lib/ai/provider";
+import { writeVariants, type WrittenVariants } from "@/lib/ai/content-agent";
+import { estimateCostMicroUsd } from "@/lib/ai/pricing";
+import { AiProviderError, type AiProvider, type AiUsage } from "@/lib/ai/provider";
 import { CHANNELS, CONTENT_TYPES } from "@/lib/content-options";
 import { db } from "@/lib/db";
 import { CONTENT_BRIEF_MAX_LENGTH } from "@/lib/limits";
@@ -60,43 +61,81 @@ export async function requestContent(
   return ok(task);
 }
 
+export interface RunOptions {
+  // False while the background runner will still retry: a transient AI error then hands
+  // the Task back instead of failing it. Defaults to true: no retry follows.
+  isFinalAttempt?: boolean;
+}
+
+// DONE: the Task is settled (IN_REVIEW or FAILED) or was not this run's to settle.
+// RETRY: a transient AI error put it back to QUEUED; the runner must run it again.
+export type RunOutcome = "DONE" | "RETRY";
+
 // The background function for a content Task: Inngest calls it in the app, tests call
 // it directly. QUEUED → RUNNING → IN_REVIEW with the Variants saved as Content Assets,
 // or FAILED with a message safe to show members, logged to the Activity Log. A Task
 // that is no longer QUEUED (cancelled, or claimed by a duplicate event) is left alone.
 // If the database is unreachable even for recording the failure, the Task stays
-// RUNNING; recovering such Tasks belongs to the retry work (tickets 06 and 10).
-export async function runContentTask(taskId: string, ai: AiProvider): Promise<void> {
+// RUNNING; recovering such Tasks belongs to the retry work (ticket 10).
+export async function runContentTask(
+  taskId: string,
+  ai: AiProvider,
+  { isFinalAttempt = true }: RunOptions = {},
+): Promise<RunOutcome> {
   const claimed = await db.task.updateMany({
     where: { id: taskId, status: "QUEUED" },
     data: { status: "RUNNING", startedAt: new Date() },
   });
-  if (claimed.count === 0) return;
+  if (claimed.count === 0) return "DONE";
   try {
     const task = await db.task.findUniqueOrThrow({ where: { id: taskId }, include: { brand: true } });
-    const variants = await writeVariants(ai, task.brand, contentRequestSchema.parse(task.input));
-    await saveVariants(taskId, variants);
+    const written = await writeVariants(ai, task.brand, contentRequestSchema.parse(task.input));
+    await saveVariants(taskId, written);
+    return "DONE";
   } catch (error: unknown) {
-    const isAiFailure = error instanceof AiProviderError;
-    await failTask(taskId, isAiFailure ? error.message : TASK_FAILED_UNEXPECTEDLY);
-    // An AI failure is fully handled. Anything else is a bug or an outage: rethrown so
-    // the background runner records it with its stack.
-    if (!isAiFailure) throw error;
+    if (!(error instanceof AiProviderError)) {
+      // A bug or an outage: rethrown so the background runner records it with its stack.
+      await failTask(taskId, TASK_FAILED_UNEXPECTEDLY);
+      throw error;
+    }
+    if (error.transient && !isFinalAttempt) {
+      await releaseTask(taskId);
+      return "RETRY";
+    }
+    await failTask(taskId, error.message, error.usage);
+    return "DONE";
   }
 }
 
-async function saveVariants(taskId: string, variants: Variant[]): Promise<void> {
+// Back to QUEUED, so the retry can claim it like a first run.
+async function releaseTask(taskId: string): Promise<void> {
+  await db.task.update({ where: { id: taskId }, data: { status: "QUEUED", startedAt: null } });
+}
+
+async function saveVariants(taskId: string, { variants, usage }: WrittenVariants): Promise<void> {
   await db.$transaction([
     db.contentAsset.createMany({
       data: variants.map(({ subject, body }, index) => ({ taskId, variant: index + 1, subject, body })),
     }),
-    db.task.update({ where: { id: taskId }, data: { status: "IN_REVIEW", finishedAt: new Date() } }),
+    db.task.update({
+      where: { id: taskId },
+      data: { status: "IN_REVIEW", finishedAt: new Date(), ...usageFields(usage) },
+    }),
   ]);
 }
 
-async function failTask(taskId: string, error: string): Promise<void> {
+function usageFields(usage: AiUsage) {
+  const { model: aiModel, inputTokens, outputTokens } = usage;
+  return { aiModel, inputTokens, outputTokens, costMicroUsd: estimateCostMicroUsd(usage) };
+}
+
+// `usage` is known when the model answered but the answer was unusable: it was billed.
+async function failTask(taskId: string, error: string, usage?: AiUsage): Promise<void> {
   await db.$transaction(async (tx) => {
-    const task = await tx.task.update({ where: { id: taskId }, data: { status: "FAILED", error, finishedAt: new Date() } });
+    const task = await tx.task.update({
+      where: { id: taskId },
+      data: { status: "FAILED", error, finishedAt: new Date(), ...(usage && usageFields(usage)) },
+    });
     await appendActivity(tx, {
       workspaceId: task.workspaceId,
       actor: "system",

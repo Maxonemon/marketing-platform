@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Brand } from "@/generated/prisma/client";
 import { CONTENT_TYPE_LABELS, type ContentType } from "@/lib/content-options";
-import type { AiProvider } from "./provider";
+import type { AiProvider, AiUsage } from "./provider";
 
 // Three real alternatives to choose from in the Review.
 export const VARIANT_COUNT = 3;
@@ -29,6 +29,11 @@ export interface Variant {
   body: string;
 }
 
+export interface WrittenVariants {
+  variants: Variant[];
+  usage: AiUsage;
+}
+
 export type BrandProfile = Pick<Brand, "name" | "websiteUrl" | "industry" | "audience" | "voice">;
 
 export interface ContentBrief {
@@ -46,14 +51,14 @@ const SYSTEM_PROMPT = [
 
 // The content agent: a plain function. Brand settings and the brief go in, validated
 // Variants come out. It never touches the database; its only outside call is the AI provider.
-export async function writeVariants(ai: AiProvider, brand: BrandProfile, brief: ContentBrief): Promise<Variant[]> {
-  const { output } = await ai.generate({
+export async function writeVariants(ai: AiProvider, brand: BrandProfile, brief: ContentBrief): Promise<WrittenVariants> {
+  const { output, usage } = await ai.generate({
     system: SYSTEM_PROMPT,
     prompt: buildPrompt(brand, brief),
     schema: outputSchemaFor(brief.contentType),
     maxTokens: CONTENT_AGENT_MAX_TOKENS,
   });
-  return output.variants;
+  return { variants: output.variants, usage };
 }
 
 function buildPrompt(brand: BrandProfile, { contentType, brief }: ContentBrief): string {

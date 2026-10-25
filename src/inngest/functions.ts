@@ -5,8 +5,8 @@ import { createMockChannel } from "@/lib/channels/mock-channel";
 import { executeApproval } from "@/lib/workflows/execution-service";
 import { approvalApproved, contentRequested, inngest } from "./client";
 
-// Until the real AI provider (ticket 06), the content agent gets this placeholder from
-// the fake provider, so the whole flow can be tried without an AI bill.
+// Until the real AI provider is wired in (ticket 06 part B), the content agent gets
+// this placeholder from the fake provider, so the whole flow can be tried without a bill.
 const PLACEHOLDER_VARIANTS = {
   variants: Array.from({ length: VARIANT_COUNT }, (_, index) => ({
     subject: `Placeholder subject ${index + 1}`,
@@ -14,14 +14,24 @@ const PLACEHOLDER_VARIANTS = {
   })),
 };
 
-// runContentTask records every failure on the Task itself. Inngest's default retries
-// only help when the Task was never claimed (e.g. the database was briefly down); a
-// retry of a Task already past QUEUED does nothing.
+// A transient AI error (rate limit, outage) is retried this many times, with Inngest's
+// backoff between attempts; any other failure is recorded on the Task at once.
+export const CONTENT_TASK_RETRIES = 2;
+
+class ContentTaskRetry extends Error {
+  override name = "ContentTaskRetry";
+}
+
+// runContentTask records every failure on the Task itself, except a transient AI error
+// while retries remain: it hands the Task back as QUEUED and this function throws, so
+// Inngest runs it again. Inngest's retries also cover a Task that was never claimed
+// (e.g. the database was briefly down); a retry of a Task past QUEUED does nothing.
 export const runContentTaskFunction = inngest.createFunction(
-  { id: "run-content-task", triggers: [contentRequested] },
-  async ({ event }) => {
+  { id: "run-content-task", triggers: [contentRequested], retries: CONTENT_TASK_RETRIES },
+  async ({ event, attempt, maxAttempts = CONTENT_TASK_RETRIES + 1 }) => {
     const ai = createFakeAiProvider(() => PLACEHOLDER_VARIANTS);
-    await runContentTask(event.data.taskId, ai);
+    const outcome = await runContentTask(event.data.taskId, ai, { isFinalAttempt: attempt + 1 >= maxAttempts });
+    if (outcome === "RETRY") throw new ContentTaskRetry("Transient AI error: the content Task will be retried.");
   },
 );
 

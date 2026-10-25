@@ -143,7 +143,10 @@ enum TaskStatus {
 }
 
 // One run of one agent. `input` holds what was asked for; src/lib/app/tasks.ts parses
-// it. startedAt/finishedAt bound the agent's run, not the Review.
+// it. startedAt/finishedAt bound the agent's run, not the Review. The AI usage fields
+// are set once the model has answered, even when its answer failed validation:
+// `aiModel` is a key of src/lib/ai/pricing.ts and `costMicroUsd` the estimated cost
+// at that model's prices, in millionths of a US dollar.
 model Task {
   id            String     @id @default(cuid())
   workspaceId   String
@@ -153,6 +156,10 @@ model Task {
   status        TaskStatus @default(QUEUED)
   input         Json
   error         String?
+  aiModel       String?
+  inputTokens   Int?
+  outputTokens  Int?
+  costMicroUsd  Int?
   startedAt     DateTime?
   finishedAt    DateTime?
   createdAt     DateTime   @default(now())
