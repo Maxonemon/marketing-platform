@@ -7,6 +7,9 @@ export const SLUG_MAX_LENGTH = 48;
 // Lowercase letters and digits in groups joined by single hyphens, e.g. acme-agency.
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+// The longest email address SMTP allows; invitations are checked against it.
+export const EMAIL_MAX_LENGTH = 254;
+
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 

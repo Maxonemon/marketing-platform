@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Fragment, Suspense } from "react";
 import { ACTIVITY_LOG_PAGE_SIZE, listActivity, type ActivityEntry, type BrandFieldChange } from "@/lib/app/activity-log";
 import type { BrandField } from "@/lib/app/brand-fields";
+import { ROLE_LABELS } from "../members/role-display";
 import { requireWorkspace } from "../require-workspace";
 import { Timestamp } from "../timestamp";
 
@@ -58,6 +59,10 @@ const EVENT_TEXT: Record<ActivityEntry["event"], string> = {
   APPROVAL_EXPIRED: "expired a Proposed Action nobody decided within 7 days for",
   EXECUTION_SUCCEEDED: "executed an approved Proposed Action for",
   EXECUTION_FAILED: "recorded a failed Execution attempt for",
+  MEMBER_INVITED: "invited someone to the Workspace:",
+  MEMBER_JOINED: "joined the Workspace from an invitation:",
+  MEMBER_ROLE_CHANGED: "changed a member's role:",
+  MEMBER_REMOVED: "removed a member:",
 };
 
 interface ActivityItemProps {
@@ -70,6 +75,7 @@ function ActivityItem({ entry, workspaceSlug }: ActivityItemProps) {
     <li className="flex flex-col gap-1 py-3 text-sm">
       <p>
         <span className="font-medium">{entry.actorName ?? "System"}</span> {EVENT_TEXT[entry.event]}{" "}
+        <MembershipChange entry={entry} />{" "}
         {entry.brand && (
           <Link href={`/w/${workspaceSlug}/brands/${entry.brand.id}`} className="underline">
             {entry.brand.name}
@@ -111,6 +117,25 @@ function ActivityItem({ entry, workspaceSlug }: ActivityItemProps) {
       )}
     </li>
   );
+}
+
+interface MembershipChangeProps {
+  entry: ActivityEntry;
+}
+
+// Who a membership entry was about, and the role.
+function MembershipChange({ entry }: MembershipChangeProps) {
+  switch (entry.event) {
+    case "MEMBER_INVITED":
+    case "MEMBER_JOINED":
+      return `${entry.details.email} as ${ROLE_LABELS[entry.details.role]}`;
+    case "MEMBER_ROLE_CHANGED":
+      return `${entry.details.name} (${entry.details.email}), ${ROLE_LABELS[entry.details.from]} → ${ROLE_LABELS[entry.details.to]}`;
+    case "MEMBER_REMOVED":
+      return `${entry.details.name} (${entry.details.email}), ${ROLE_LABELS[entry.details.role]}`;
+    default:
+      return null;
+  }
 }
 
 // Typed by the Brand fields, so adding a setting without a label fails the build.

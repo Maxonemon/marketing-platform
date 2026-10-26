@@ -35,6 +35,7 @@ model User {
   requestedTasks   Task[]
   proposedActions  ProposedAction[]
   decidedApprovals Approval[]
+  sentInvitations  WorkspaceInvitation[]
 }
 
 model Session {
@@ -91,6 +92,7 @@ model Workspace {
   updatedAt DateTime @updatedAt
 
   members         WorkspaceMember[]
+  invitations     WorkspaceInvitation[]
   brands          Brand[]
   tasks           Task[]
   proposedActions ProposedAction[]
@@ -109,6 +111,24 @@ model WorkspaceMember {
 
   @@unique([workspaceId, userId])
   @@index([userId])
+}
+
+// A person invited to a Workspace by email with a role (ADMIN or MEMBER), before they
+// are a member. The first sign-in of a user with that email consumes it: the membership
+// is created and the invitation deleted (src/lib/app/members.ts). `email` is lowercased.
+model WorkspaceInvitation {
+  id          String        @id @default(cuid())
+  workspaceId String
+  email       String
+  role        WorkspaceRole
+  invitedById String
+  createdAt   DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User      @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, email])
+  @@index([email])
 }
 
 model Brand {
@@ -315,6 +335,10 @@ enum ActivityEvent {
   APPROVAL_EXPIRED
   EXECUTION_SUCCEEDED
   EXECUTION_FAILED
+  MEMBER_INVITED
+  MEMBER_JOINED
+  MEMBER_ROLE_CHANGED
+  MEMBER_REMOVED
 }
 
 // Append-only: src/lib/app/activity-log.ts only ever inserts entries. NoAction keeps a

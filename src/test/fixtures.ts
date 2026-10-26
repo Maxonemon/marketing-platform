@@ -15,7 +15,7 @@ export async function createTestUser(name = "Test User"): Promise<Actor> {
   return { userId: id };
 }
 
-// Adding members is ticket 11; until then tests insert memberships directly.
+// Tests insert memberships directly; the app adds members through invitations (src/lib/app/members.ts).
 export async function addTestMember(workspaceId: string, actor: Actor, role: WorkspaceRole): Promise<void> {
   await db.workspaceMember.create({ data: { workspaceId, userId: actor.userId, role } });
 }

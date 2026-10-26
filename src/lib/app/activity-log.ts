@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import { CHANNELS } from "@/lib/content-options";
+
+const WORKSPACE_ROLES = ["OWNER", "ADMIN", "MEMBER"] as const;
 import { db } from "@/lib/db";
 import { requireRole, type Actor } from "@/lib/permissions";
 import { BRAND_FIELDS } from "./brand-fields";
@@ -37,6 +39,19 @@ const activitySchema = z.discriminatedUnion("event", [
   // Nobody decided it within 7 days; the system is the actor.
   z.object({ event: z.literal("APPROVAL_EXPIRED"), details: z.object({ payloadHash: z.string() }) }),
   z.object({ event: z.literal("EXECUTION_SUCCEEDED"), details: z.object({ channel: z.enum(CHANNELS), attempt: z.number() }) }),
+  // Membership changes. The member is named in the details, as members see each other's
+  // names and emails on the Members page anyway.
+  z.object({ event: z.literal("MEMBER_INVITED"), details: z.object({ email: z.string(), role: z.enum(WORKSPACE_ROLES) }) }),
+  // The invited person signed in and became a member; they are the actor.
+  z.object({ event: z.literal("MEMBER_JOINED"), details: z.object({ email: z.string(), role: z.enum(WORKSPACE_ROLES) }) }),
+  z.object({
+    event: z.literal("MEMBER_ROLE_CHANGED"),
+    details: z.object({ name: z.string(), email: z.string(), from: z.enum(WORKSPACE_ROLES), to: z.enum(WORKSPACE_ROLES) }),
+  }),
+  z.object({
+    event: z.literal("MEMBER_REMOVED"),
+    details: z.object({ name: z.string(), email: z.string(), role: z.enum(WORKSPACE_ROLES) }),
+  }),
   // The error is the execution service's own safe message, never the Channel's. `final`
   // when no retry follows: the last attempt failed, or it may have gone out.
   z.object({
@@ -52,7 +67,8 @@ export type NewActivityEntry = Activity & {
   workspaceId: string;
   // "system" when no person acted, e.g. a background Task failed.
   actor: Actor | "system";
-  brandId: string;
+  // Left out for an entry about the Workspace itself, e.g. a membership change.
+  brandId?: string;
   taskId?: string;
   approvalId?: string;
 };
