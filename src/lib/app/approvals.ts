@@ -355,9 +355,14 @@ export async function approve(
     return ok(undefined);
   });
   if (!decided.ok) return decided;
-  // If this throws, the Approval stays APPROVED with no Execution; starting it again
-  // without a new approval comes with retries (ticket 10).
-  await startExecution(approvalId);
+  // The decision stands even if the event can't be sent: the reconcile sweep
+  // (src/lib/workflows/execution-service.ts) starts an Approved Approval with no attempt.
+  // The error itself is not logged: it could carry the event key.
+  try {
+    await startExecution(approvalId);
+  } catch {
+    console.error(`Approval ${approvalId}: couldn't start its Execution; the reconcile sweep will start it.`);
+  }
   return decided;
 }
 

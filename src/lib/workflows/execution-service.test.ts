@@ -11,10 +11,14 @@ import { createMockChannel } from "@/lib/channels/mock-channel";
 import { db, isUniqueViolation } from "@/lib/db";
 import { addTestMember, createTestApproval, createTestBrand, createTestUser, createTestWorkspace, fakeVariants } from "@/test/fixtures";
 import {
+  ATTEMPT_ABANDONED,
   DELIVERY_FAILED,
   DELIVERY_UNCERTAIN,
   executeApproval,
+  EXECUTION_START_GRACE_MINUTES,
   MAX_EXECUTION_ATTEMPTS,
+  reconcileExecutions,
+  STALE_ATTEMPT_MINUTES,
   type ExecutionOutcome,
 } from "./execution-service";
 
@@ -343,5 +347,71 @@ describe("failed attempts and retries", () => {
     const second = db.execution.create({ data: { ...success, attempt: 2 } });
 
     await expect(second).rejects.toSatisfy(isUniqueViolation);
+  });
+});
+
+describe("reconciling Executions", () => {
+  const minutesFromNow = (minutes: number) => ({ now: () => new Date(Date.now() + minutes * 60 * ONE_SECOND_MS) });
+
+  it("starts an Approved Approval whose Execution event was never sent, once the grace period is over", async () => {
+    const { owner, mia, workspaceId, brandId } = await setUpWorkspace();
+    const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
+    const approved = await approve(owner, workspaceId, approvalId, async () => {
+      throw new Error("Inngest is unreachable");
+    });
+    const started: string[] = [];
+    const startExecution: StartExecution = async (id) => {
+      started.push(id);
+    };
+
+    const tooSoon = await reconcileExecutions(startExecution, minutesFromNow(1));
+    const afterGrace = await reconcileExecutions(startExecution, minutesFromNow(EXECUTION_START_GRACE_MINUTES + 1));
+
+    expect(approved).toEqual({ ok: true, value: undefined });
+    expect(tooSoon).toEqual({ started: 0, markedUncertain: 0 });
+    expect(afterGrace).toEqual({ started: 1, markedUncertain: 0 });
+    expect(started).toEqual([approvalId]);
+  });
+
+  it("leaves an Approval that already has an attempt to the retries", async () => {
+    const { approvalId } = await setUpApproved();
+    await executeApproval(approvalId, { MOCK: createMockChannel({ failedAttempts: 1 }) });
+    const started: string[] = [];
+
+    const outcome = await reconcileExecutions(async (id) => {
+      started.push(id);
+    }, minutesFromNow(EXECUTION_START_GRACE_MINUTES + 1));
+
+    expect(outcome).toEqual({ started: 0, markedUncertain: 0 });
+    expect(started).toEqual([]);
+  });
+
+  // The process died mid-delivery: the test inserts the attempt it left STARTED.
+  it("marks an attempt left STARTED as UNCERTAIN, logs it as final, and never retries it", async () => {
+    const { mia, workspaceId, approvalId } = await setUpApproved();
+    await db.execution.create({ data: { approvalId, idempotencyKey: `approval:${approvalId}`, attempt: 1 } });
+    const channel = createMockChannel();
+
+    const fresh = await reconcileExecutions(startNothing, minutesFromNow(1));
+    const stale = await reconcileExecutions(startNothing, minutesFromNow(STALE_ATTEMPT_MINUTES + 1));
+    const retry = await executeApproval(approvalId, { MOCK: channel });
+
+    expect(fresh).toEqual({ started: 0, markedUncertain: 0 });
+    expect(stale).toEqual({ started: 0, markedUncertain: 1 });
+    expect(retry).toEqual({ status: "REFUSED", reason: "MAY_HAVE_BEEN_DELIVERED" });
+    expect(channel.deliveries).toEqual([]);
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { executions: [{ attempt: 1, status: "UNCERTAIN", error: ATTEMPT_ABANDONED, finishedAt: expect.any(Date) }] },
+    });
+    expect(await listActivity(mia, workspaceId)).toMatchObject({
+      ok: true,
+      value: [
+        { event: "EXECUTION_FAILED", actorName: null, approvalId, details: { attempt: 1, error: ATTEMPT_ABANDONED, final: true } },
+        { event: "APPROVAL_APPROVED" },
+        { event: "PROPOSED_ACTION_SUBMITTED" },
+        { event: "BRAND_CREATED" },
+      ],
+    });
   });
 });

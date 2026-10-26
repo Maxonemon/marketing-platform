@@ -3,8 +3,8 @@ import { expireOverdueApprovals } from "@/lib/app/approvals";
 import { runContentTask } from "@/lib/app/content-requests";
 import { createMockChannel } from "@/lib/channels/mock-channel";
 import { aiEnv, mockChannelEnv } from "@/lib/env";
-import { DELIVERY_FAILED, executeApproval } from "@/lib/workflows/execution-service";
-import { approvalApproved, contentRequested, inngest } from "./client";
+import { DELIVERY_FAILED, executeApproval, reconcileExecutions } from "@/lib/workflows/execution-service";
+import { approvalApproved, contentRequested, inngest, sendApprovalApproved } from "./client";
 
 // A transient AI error (rate limit, outage) is retried this many times, with Inngest's
 // backoff between attempts; any other failure is recorded on the Task at once.
@@ -59,4 +59,11 @@ export const expireApprovalsFunction = inngest.createFunction(
   async () => ({ expired: await expireOverdueApprovals() }),
 );
 
-export const functions = [runContentTaskFunction, executeApprovalFunction, expireApprovalsFunction];
+// Every 15 minutes, start the Execution of Approved Approvals whose event was never sent,
+// and mark attempts left STARTED as UNCERTAIN; the counts are the run's output in Inngest.
+export const reconcileExecutionsFunction = inngest.createFunction(
+  { id: "reconcile-executions", triggers: [{ cron: "*/15 * * * *" }] },
+  async () => reconcileExecutions(sendApprovalApproved),
+);
+
+export const functions = [runContentTaskFunction, executeApprovalFunction, expireApprovalsFunction, reconcileExecutionsFunction];

@@ -5,6 +5,7 @@ import type { ExecutionStatus } from "@/generated/prisma/client";
 import { getApproval, type ApprovalDetail } from "@/lib/app/approvals";
 import type { WorkspaceSummary } from "@/lib/app/workspaces";
 import { CHANNEL_LABELS, CONTENT_TYPE_LABELS } from "@/lib/content-options";
+import { MAX_EXECUTION_ATTEMPTS } from "@/lib/workflows/execution-service";
 import type { ProposedActionPayload } from "@/lib/workflows/proposed-action-payload";
 import { requireWorkspace } from "../../require-workspace";
 import { RuleViolations } from "../../rule-violations";
@@ -237,6 +238,7 @@ interface ExecutionsProps {
   approval: ApprovalDetail;
 }
 
+// Every attempt with its result or error, then what happens next.
 function Executions({ approval }: ExecutionsProps) {
   if (approval.executions.length === 0) {
     return approval.status === "APPROVED" ? (
@@ -245,15 +247,23 @@ function Executions({ approval }: ExecutionsProps) {
       <p className="text-zinc-500">Nothing is executed until the Proposed Action is approved.</p>
     );
   }
+  const last = approval.executions.at(-1);
+  const willRetry = last?.status === "FAILED" && last.attempt < MAX_EXECUTION_ATTEMPTS && approval.status === "APPROVED";
   return (
-    <ol className="flex flex-col gap-1">
-      {approval.executions.map((execution) => (
-        <li key={execution.id}>
-          Attempt {execution.attempt}: {EXECUTION_STATUS_LABELS[execution.status]}{" "}
-          <Timestamp date={execution.finishedAt ?? execution.startedAt} className="text-zinc-500" />
-          {execution.error && <span className="text-red-600"> {execution.error}</span>}
-        </li>
-      ))}
-    </ol>
+    <>
+      <ol className="flex flex-col gap-1">
+        {approval.executions.map((execution) => (
+          <li key={execution.id} className="wrap-break-word">
+            Attempt {execution.attempt}: {EXECUTION_STATUS_LABELS[execution.status]}{" "}
+            <Timestamp date={execution.finishedAt ?? execution.startedAt} className="text-zinc-500" />
+            {execution.error && <span className="text-red-600"> {execution.error}</span>}
+            {execution.result !== null && (
+              <span className="font-mono text-xs text-zinc-500"> {JSON.stringify(execution.result)}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+      {willRetry && <p className="text-zinc-500">Retrying in the background with the same approval. Refresh to see the result.</p>}
+    </>
   );
 }

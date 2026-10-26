@@ -1,6 +1,6 @@
 import type { Execution, ExecutionStatus, ProposedAction } from "@/generated/prisma/client";
 import { appendActivity } from "@/lib/app/activity-log";
-import { lockApproval } from "@/lib/app/approvals";
+import { lockApproval, type StartExecution } from "@/lib/app/approvals";
 import {
   NotDeliveredError,
   type ChannelAdapter,
@@ -8,6 +8,7 @@ import {
   type Delivery,
   type DeliveryResult,
 } from "@/lib/channels/channel-adapter";
+import { systemClock, type Clock } from "@/lib/clock";
 import { db } from "@/lib/db";
 import { verifyPayload } from "./proposed-action-payload";
 
@@ -43,6 +44,19 @@ export const MAX_EXECUTION_ATTEMPTS = 3;
 export const DELIVERY_FAILED = "The Channel couldn't deliver it.";
 export const DELIVERY_UNCERTAIN =
   "The Channel failed without saying whether it was delivered, so it is not retried. Check the Channel.";
+
+export const ATTEMPT_ABANDONED = "The attempt never finished, so it may have gone out and is not retried. Check the Channel.";
+
+// The reconcile sweep starts an Approved Approval with no attempt this long after the
+// decision (its own event should have started it by then)...
+export const EXECUTION_START_GRACE_MINUTES = 5;
+// ...and takes an attempt still STARTED this long after it began as abandoned.
+export const STALE_ATTEMPT_MINUTES = 15;
+
+// One run of the reconcile sweep handles at most this many of each.
+const RECONCILE_BATCH_SIZE = 500;
+
+const MINUTE_MS = 60 * 1000;
 
 // Shared by every attempt for the same Approval, so a Channel can recognise a repeat.
 function idempotencyKeyFor(approvalId: string): string {
@@ -141,5 +155,58 @@ function recordAttempt({ execution, proposedAction, delivery }: Claim, delivered
     await tx.execution.update({ where: { id: executionId }, data: { status: delivered.status, error, finishedAt } });
     await appendActivity(tx, { ...entry, event: "EXECUTION_FAILED", details: { attempt, error, final: !willRetry } });
     return isUncertain ? { status: "UNCERTAIN", executionId } : { status: "FAILED", executionId, willRetry };
+  });
+}
+
+export interface ReconcileOutcome {
+  started: number;
+  markedUncertain: number;
+}
+
+// The reconcile sweep, run by a periodic background function. It starts the Execution
+// of Approved Approvals that have no attempt (approving committed but its event was never
+// sent), and marks attempts left STARTED (the process died mid-delivery) as UNCERTAIN:
+// they may have gone out, so they are never retried and the version stays locked against
+// edits. Starting twice is harmless: each attempt is claimed under the Approval's lock.
+export async function reconcileExecutions(startExecution: StartExecution, clock: Clock = systemClock): Promise<ReconcileOutcome> {
+  const now = clock.now().getTime();
+  const unstarted = await db.approval.findMany({
+    where: { status: "APPROVED", decidedAt: { lte: new Date(now - EXECUTION_START_GRACE_MINUTES * MINUTE_MS) }, executions: { none: {} } },
+    orderBy: { decidedAt: "asc" },
+    take: RECONCILE_BATCH_SIZE,
+    select: { id: true },
+  });
+  for (const { id } of unstarted) await startExecution(id);
+  const abandoned = await db.execution.findMany({
+    where: { status: "STARTED", startedAt: { lte: new Date(now - STALE_ATTEMPT_MINUTES * MINUTE_MS) } },
+    orderBy: { startedAt: "asc" },
+    take: RECONCILE_BATCH_SIZE,
+    include: { approval: { select: { proposedAction: { select: { workspaceId: true, brandId: true } } } } },
+  });
+  let markedUncertain = 0;
+  for (const execution of abandoned) {
+    if (await markAbandoned(execution, execution.approval.proposedAction)) markedUncertain += 1;
+  }
+  return { started: unstarted.length, markedUncertain };
+}
+
+// Only if it is still STARTED, with its log entry: true when this call marked it. A
+// delivery that does finish later still records its real result over this.
+function markAbandoned(execution: Execution, { workspaceId, brandId }: Pick<ProposedAction, "workspaceId" | "brandId">): Promise<boolean> {
+  return db.$transaction(async (tx) => {
+    const marked = await tx.execution.updateMany({
+      where: { id: execution.id, status: "STARTED" },
+      data: { status: "UNCERTAIN", error: ATTEMPT_ABANDONED, finishedAt: new Date() },
+    });
+    if (marked.count === 0) return false;
+    await appendActivity(tx, {
+      workspaceId,
+      actor: "system",
+      brandId,
+      approvalId: execution.approvalId,
+      event: "EXECUTION_FAILED",
+      details: { attempt: execution.attempt, error: ATTEMPT_ABANDONED, final: true },
+    });
+    return true;
   });
 }
