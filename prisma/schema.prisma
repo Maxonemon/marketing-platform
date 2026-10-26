@@ -251,6 +251,8 @@ model Approval {
   resubmissionOfId String?        @unique
   supersededById   String?        @unique
   createdAt        DateTime       @default(now())
+  // createdAt + 7 days: a Pending Approval past it is EXPIRED.
+  expiresAt        DateTime
   updatedAt        DateTime       @updatedAt
 
   proposedAction ProposedAction     @relation(fields: [proposedActionId], references: [id], onDelete: Cascade)
@@ -261,6 +263,9 @@ model Approval {
   supersedes     Approval?          @relation("Supersession")
   executions     Execution[]
   activity       ActivityLogEntry[]
+
+  // The expiry sweep looks up overdue Pending Approvals.
+  @@index([status, expiresAt])
 }
 
 enum ExecutionStatus {
@@ -297,6 +302,7 @@ enum ActivityEvent {
   APPROVAL_APPROVED
   APPROVAL_REJECTED
   APPROVAL_SUPERSEDED
+  APPROVAL_EXPIRED
   EXECUTION_SUCCEEDED
 }
 

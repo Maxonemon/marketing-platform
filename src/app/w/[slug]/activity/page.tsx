@@ -55,6 +55,7 @@ const EVENT_TEXT: Record<ActivityEntry["event"], string> = {
   APPROVAL_APPROVED: "approved a Proposed Action for",
   APPROVAL_REJECTED: "rejected a Proposed Action for",
   APPROVAL_SUPERSEDED: "replaced a Proposed Action with an edited one for",
+  APPROVAL_EXPIRED: "expired a Proposed Action nobody decided within 7 days for",
   EXECUTION_SUCCEEDED: "executed an approved Proposed Action for",
 };
 

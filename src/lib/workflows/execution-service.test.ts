@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createFakeAiProvider } from "@/lib/ai/fake-provider";
 import { listActivity } from "@/lib/app/activity-log";
-import { approve, getApproval, type StartExecution } from "@/lib/app/approvals";
+import { approve, expireOverdueApprovals, getApproval, type StartExecution } from "@/lib/app/approvals";
 import { requestContent, runContentTask } from "@/lib/app/content-requests";
 import { getReview, submitReview } from "@/lib/app/reviews";
 import { getTask } from "@/lib/app/tasks";
@@ -21,6 +21,8 @@ const EXPECTED_PAYLOAD = {
   audience: null,
   timing: { kind: "AS_SOON_AS_APPROVED" },
 };
+
+const ONE_SECOND_MS = 1000;
 
 // Long enough for an Execution started meanwhile to reach its claim.
 const SUPERSEDE_HOLD_MS = 1000;
@@ -118,6 +120,25 @@ describe("the execution service", () => {
 
     expect(outcome).toEqual({ status: "REFUSED", reason: "NOT_APPROVED" });
     expect(channel.deliveries).toEqual([]);
+  });
+
+  it("refuses an Approval the expiry sweep expired, and sends nothing", async () => {
+    const { mia, workspaceId, brandId } = await setUpWorkspace();
+    const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
+    const approval = await getApproval(mia, workspaceId, approvalId);
+    if (!approval.ok) throw new Error("expected the Approval");
+    const pastDeadline = new Date(approval.value.expiresAt.getTime() + ONE_SECOND_MS);
+    await expireOverdueApprovals({ now: () => pastDeadline });
+    const channel = createMockChannel();
+
+    const outcome = await executeApproval(approvalId, { MOCK: channel });
+
+    expect(outcome).toEqual({ status: "REFUSED", reason: "NOT_APPROVED" });
+    expect(channel.deliveries).toEqual([]);
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { status: "EXPIRED", executions: [] },
+    });
   });
 
   // No code updates a Proposed Action, so the test changes the stored row directly.

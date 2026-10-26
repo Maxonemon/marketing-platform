@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Approval, ApprovalStatus, ExecutionStatus, Prisma } from "@/generated/prisma/client";
+import { systemClock, type Clock } from "@/lib/clock";
 import { db, isUniqueViolation } from "@/lib/db";
 import { APPROVAL_COMMENT_MAX_LENGTH } from "@/lib/limits";
 import { requireRole, type Actor } from "@/lib/permissions";
@@ -15,6 +16,8 @@ export interface ApprovalDetail {
   status: ApprovalStatus;
   decidedBy: string | null;
   decidedAt: Date | null;
+  // Still PENDING after this, it is EXPIRED.
+  expiresAt: Date;
   // The Approver's reason; always set on a REJECTED Approval.
   comment: string | null;
   // The Rejected Approval this one resubmits, and the Approval this one was resubmitted as.
@@ -68,6 +71,12 @@ export interface PendingApproval {
   task: TaskSummary;
 }
 
+// A Pending Approval nobody decided this long after it was created is EXPIRED.
+export const APPROVAL_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+
+// One run of the expiry sweep expires at most this many Approvals.
+export const EXPIRY_SWEEP_BATCH_SIZE = 500;
+
 // The approval queue shows this many of the oldest Pending Approvals.
 export const APPROVAL_QUEUE_PAGE_SIZE = 100;
 
@@ -76,6 +85,7 @@ export type StartExecution = (approvalId: string) => Promise<void>;
 
 export const APPROVAL_NOT_FOUND = "Approval not found.";
 export const APPROVAL_ALREADY_DECIDED = "This Approval has already been decided.";
+export const APPROVAL_EXPIRED = "Nobody decided this Approval within 7 days, so it expired. Submit the content again.";
 const PAYLOAD_CHANGED = "This Proposed Action no longer matches its hash, so it can't be approved.";
 const RESUBMITTED_PAYLOAD_CHANGED = "This Proposed Action no longer matches its hash, so it can't be resubmitted.";
 const COMMENT_REQUIRED = "Tell the author what to change.";
@@ -134,7 +144,12 @@ export async function proposeAction(tx: Prisma.TransactionClient, actor: Actor, 
   });
   // The link is written as a plain foreign key, so a second resubmission breaks its
   // unique index. A nested connect would instead unlink the earlier resubmission.
-  const approval = await tx.approval.create({ data: { proposedActionId: proposedAction.id, resubmissionOfId } });
+  // Both times come from the same reading, so the deadline is exactly 7 days after creation.
+  const createdAt = systemClock.now();
+  const expiresAt = new Date(createdAt.getTime() + APPROVAL_LIFETIME_MS);
+  const approval = await tx.approval.create({
+    data: { proposedActionId: proposedAction.id, resubmissionOfId, createdAt, expiresAt },
+  });
   await appendActivity(tx, {
     workspaceId,
     actor,
@@ -182,24 +197,62 @@ export function canBeSuperseded(status: ApprovalStatus, executions: readonly { s
 function findToDecide(tx: Prisma.TransactionClient, workspaceId: string, approvalId: string) {
   return tx.approval.findFirst({
     where: inWorkspace(approvalId, workspaceId),
-    include: { proposedAction: { select: { brandId: true, payload: true, payloadHash: true } } },
+    include: { proposedAction: { select: { workspaceId: true, brandId: true, payload: true, payloadHash: true } } },
   });
+}
+
+// What expiring needs to know about an Approval.
+interface ExpiryCandidate {
+  id: string;
+  status: ApprovalStatus;
+  expiresAt: Date;
+  proposedAction: { workspaceId: string; brandId: string; payloadHash: string };
+}
+
+// Moves a Pending Approval past its deadline to EXPIRED, only if it is still PENDING, and
+// logs it with the system as the actor: true when this call expired it. EXPIRED is final.
+// Like deciding, the update waits for any other status change of the row, then finds it
+// no longer PENDING and changes nothing.
+async function expireIfOverdue(tx: Prisma.TransactionClient, approval: ExpiryCandidate, now: Date): Promise<boolean> {
+  if (approval.status !== "PENDING" || approval.expiresAt > now) return false;
+  const expired = await tx.approval.updateMany({
+    where: { id: approval.id, status: "PENDING", expiresAt: { lte: now } },
+    data: { status: "EXPIRED" },
+  });
+  if (expired.count === 0) return false;
+  const { workspaceId, brandId, payloadHash } = approval.proposedAction;
+  await appendActivity(tx, {
+    workspaceId,
+    actor: "system",
+    brandId,
+    approvalId: approval.id,
+    event: "APPROVAL_EXPIRED",
+    details: { payloadHash },
+  });
+  return true;
+}
+
+// An Approval past its deadline can't be decided. One still PENDING is expired here, so
+// the refusal doesn't wait for the sweep; the caller's transaction commits the expiry.
+async function isExpired(tx: Prisma.TransactionClient, approval: ExpiryCandidate, now: Date): Promise<boolean> {
+  return approval.status === "EXPIRED" || (await expireIfOverdue(tx, approval, now));
 }
 
 type Decision = { status: "APPROVED" } | { status: "REJECTED"; comment: string };
 
-// Moves the Approval from PENDING to the decision only if it is still PENDING. Of two
-// decisions at the same moment, the second waits for the first's row lock, then finds
-// the Approval no longer PENDING and changes nothing: false.
+// Moves the Approval from PENDING to the decision only if it is still PENDING and before
+// its deadline. Of two decisions at the same moment, the second waits for the first's row
+// lock, then finds the Approval no longer PENDING and changes nothing: false.
 async function decideIfPending(
   tx: Prisma.TransactionClient,
   actor: Actor,
   approvalId: string,
   decision: Decision,
+  now: Date,
 ): Promise<boolean> {
   const claimed = await tx.approval.updateMany({
-    where: { id: approvalId, status: "PENDING" },
-    data: { ...decision, decidedById: actor.userId, decidedAt: new Date() },
+    where: { id: approvalId, status: "PENDING", expiresAt: { gt: now } },
+    data: { ...decision, decidedById: actor.userId, decidedAt: now },
   });
   return claimed.count === 1;
 }
@@ -218,6 +271,7 @@ export async function getApproval(actor: Actor, workspaceId: string, approvalId:
     status: row.status,
     decidedBy: row.decidedBy?.name ?? null,
     decidedAt: row.decidedAt,
+    expiresAt: row.expiresAt,
     comment: row.comment,
     resubmissionOfId: row.resubmissionOfId,
     resubmittedAsId: row.resubmittedAs?.id ?? null,
@@ -264,8 +318,8 @@ export async function listPendingApprovals(actor: Actor, workspaceId: string): P
 
 // Owners and Admins only; approving your own Proposed Action is allowed. A Proposed
 // Action whose stored payload fails its hash check is refused, as the execution service
-// would refuse it. The status moves from PENDING only if it is still PENDING, so each
-// Approval is decided once.
+// would refuse it, and so is one past its 7-day deadline, which this marks EXPIRED. The
+// status moves from PENDING only if it is still PENDING, so each Approval is decided once.
 // The decision and its Activity Log entry commit together, then the Execution starts
 // in the background: approving never executes anything itself.
 export async function approve(
@@ -273,15 +327,18 @@ export async function approve(
   workspaceId: string,
   approvalId: string,
   startExecution: StartExecution,
+  clock: Clock = systemClock,
 ): Promise<Result<void>> {
   const access = await requireRole(actor, workspaceId, "ADMIN");
   if (!access.ok) return access;
+  const now = clock.now();
   const decided = await db.$transaction(async (tx): Promise<Result<void>> => {
     const approval = await findToDecide(tx, workspaceId, approvalId);
     if (!approval) return fail("NOT_FOUND", APPROVAL_NOT_FOUND);
+    if (await isExpired(tx, approval, now)) return fail("CONFLICT", APPROVAL_EXPIRED);
     const { payload, payloadHash } = approval.proposedAction;
     if (!verifyPayload(payload, payloadHash)) return fail("CONFLICT", PAYLOAD_CHANGED);
-    if (!(await decideIfPending(tx, actor, approvalId, { status: "APPROVED" }))) {
+    if (!(await decideIfPending(tx, actor, approvalId, { status: "APPROVED" }, now))) {
       return fail("CONFLICT", APPROVAL_ALREADY_DECIDED);
     }
     await appendActivity(tx, {
@@ -303,23 +360,27 @@ export async function approve(
 
 // Owners and Admins only, with a comment that tells the author what to change; the
 // comment is shown on the Approval and logged. Like approve, it moves the status from
-// PENDING only if it is still PENDING, and the decision commits with its Activity Log
-// entry. Rejecting executes nothing, so the payload's hash is not checked.
+// PENDING only if it is still PENDING, refuses (and expires) one past its deadline, and
+// the decision commits with its Activity Log entry. Rejecting executes nothing, so the
+// payload's hash is not checked.
 export async function reject(
   actor: Actor,
   workspaceId: string,
   approvalId: string,
   input: RejectInput,
+  clock: Clock = systemClock,
 ): Promise<Result<void>> {
   const access = await requireRole(actor, workspaceId, "ADMIN");
   if (!access.ok) return access;
   const parsed = rejectSchema.safeParse(input);
   if (!parsed.success) return fail("INVALID_INPUT", "Check the comment.", z.flattenError(parsed.error).fieldErrors);
   const { comment } = parsed.data;
+  const now = clock.now();
   return db.$transaction(async (tx): Promise<Result<void>> => {
     const approval = await findToDecide(tx, workspaceId, approvalId);
     if (!approval) return fail("NOT_FOUND", APPROVAL_NOT_FOUND);
-    if (!(await decideIfPending(tx, actor, approvalId, { status: "REJECTED", comment }))) {
+    if (await isExpired(tx, approval, now)) return fail("CONFLICT", APPROVAL_EXPIRED);
+    if (!(await decideIfPending(tx, actor, approvalId, { status: "REJECTED", comment }, now))) {
       return fail("CONFLICT", APPROVAL_ALREADY_DECIDED);
     }
     await appendActivity(tx, {
@@ -332,6 +393,31 @@ export async function reject(
     });
     return ok(undefined);
   });
+}
+
+// The expiry sweep: run by a periodic background function, not by a person, so it checks
+// no role. It expires, oldest deadline first, up to EXPIRY_SWEEP_BATCH_SIZE Pending
+// Approvals past their deadline (the next run takes the rest), each in its own
+// transaction with its log entry. Each update is conditional, so one decided or expired
+// meanwhile is left as it is. Returns how many this run expired.
+export async function expireOverdueApprovals(clock: Clock = systemClock): Promise<number> {
+  const now = clock.now();
+  const overdue = await db.approval.findMany({
+    where: { status: "PENDING", expiresAt: { lte: now } },
+    orderBy: [{ expiresAt: "asc" }, { id: "asc" }],
+    take: EXPIRY_SWEEP_BATCH_SIZE,
+    select: {
+      id: true,
+      status: true,
+      expiresAt: true,
+      proposedAction: { select: { workspaceId: true, brandId: true, payloadHash: true } },
+    },
+  });
+  let expiredCount = 0;
+  for (const approval of overdue) {
+    if (await db.$transaction((tx) => expireIfOverdue(tx, approval, now))) expiredCount += 1;
+  }
+  return expiredCount;
 }
 
 // Any member can resubmit a Rejected Approval: its Content Asset, as it is now, to the

@@ -59,6 +59,12 @@ async function ApprovalView({ params }: ApprovalPageProps) {
               · decided by {approval.decidedBy} <Timestamp date={approval.decidedAt} />
             </>
           )}
+          {(approval.status === "PENDING" || approval.status === "EXPIRED") && (
+            <>
+              {" "}
+              · {approval.status === "PENDING" ? "expires" : "expired"} <Timestamp date={approval.expiresAt} />
+            </>
+          )}
         </span>
         {approval.comment && (
           <p className="wrap-break-word whitespace-pre-wrap">

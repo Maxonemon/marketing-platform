@@ -1,11 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { VARIANT_COUNT } from "@/lib/ai/content-agent";
 import { createFakeAiProvider } from "@/lib/ai/fake-provider";
+import type { Clock } from "@/lib/clock";
 import { db } from "@/lib/db";
 import { addTestMember, createTestApproval, createTestBrand, createTestReview, createTestUser, createTestWorkspace } from "@/test/fixtures";
 import { listActivity } from "./activity-log";
 import { requestContent, runContentTask } from "./content-requests";
-import { approve, getApproval, listPendingApprovals, reject, resubmit, type StartExecution } from "./approvals";
+import {
+  APPROVAL_EXPIRED,
+  approve,
+  expireOverdueApprovals,
+  getApproval,
+  listPendingApprovals,
+  reject,
+  resubmit,
+  type StartExecution,
+} from "./approvals";
 import { getReview, submitReview } from "./reviews";
 import { getTask } from "./tasks";
 
@@ -519,5 +529,138 @@ describe("another Workspace's Approvals", () => {
     expect(startedApprovalIds).toEqual([]);
     expect(await getTask(mia, workspaceId, taskId)).toMatchObject({ ok: true, value: { status: "IN_REVIEW" } });
     expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({ ok: true, value: { status: "PENDING" } });
+  });
+});
+
+const SECOND_MS = 1000;
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * SECOND_MS;
+
+// A Clock stopped at `at`.
+function clockAt(at: Date): Clock {
+  return { now: () => at };
+}
+
+// Mia submits POST_TEXT; Clocks one second either side of its Approval's deadline.
+async function setUpPending() {
+  const setup = await setUpWorkspace();
+  const approvalId = await createTestApproval(setup.mia, setup.workspaceId, setup.brandId, POST_TEXT);
+  const approval = await getApproval(setup.owner, setup.workspaceId, approvalId);
+  if (!approval.ok) throw new Error("Test setup: expected the Approval.");
+  const deadline = approval.value.expiresAt.getTime();
+  return {
+    ...setup,
+    approvalId,
+    beforeDeadline: clockAt(new Date(deadline - SECOND_MS)),
+    afterDeadline: clockAt(new Date(deadline + SECOND_MS)),
+  };
+}
+
+describe("7-day expiry", () => {
+  it("sets the deadline 7 days after the Proposed Action is submitted", async () => {
+    const { owner, mia, workspaceId, brandId } = await setUpWorkspace();
+    const before = Date.now();
+    const approvalId = await createTestApproval(mia, workspaceId, brandId, POST_TEXT);
+    const after = Date.now();
+
+    const approval = await getApproval(owner, workspaceId, approvalId);
+
+    if (!approval.ok) throw new Error("expected the Approval");
+    expect(approval.value.expiresAt.getTime()).toBeGreaterThanOrEqual(before + SEVEN_DAYS_MS);
+    expect(approval.value.expiresAt.getTime()).toBeLessThanOrEqual(after + SEVEN_DAYS_MS);
+  });
+
+  it("expires a Pending Approval in the sweep at 7 days + 1 s, logged by the system, and takes it out of the queue", async () => {
+    const { owner, workspaceId, brandId, approvalId, afterDeadline } = await setUpPending();
+
+    await expireOverdueApprovals(afterDeadline);
+
+    expect(await getApproval(owner, workspaceId, approvalId)).toMatchObject({ ok: true, value: { status: "EXPIRED" } });
+    expect(await listPendingApprovals(owner, workspaceId)).toEqual({ ok: true, value: [] });
+    expect(await listActivity(owner, workspaceId)).toMatchObject({
+      ok: true,
+      value: [
+        { event: "APPROVAL_EXPIRED", actorName: null, brand: { id: brandId }, approvalId, details: { payloadHash: EXPECTED_HASH } },
+        { event: "PROPOSED_ACTION_SUBMITTED" },
+        { event: "BRAND_CREATED" },
+      ],
+    });
+  });
+
+  it("leaves a Pending Approval alone in the sweep a second before its deadline, and it can still be approved", async () => {
+    const { owner, workspaceId, approvalId, beforeDeadline } = await setUpPending();
+
+    await expireOverdueApprovals(beforeDeadline);
+
+    expect(await getApproval(owner, workspaceId, approvalId)).toMatchObject({ ok: true, value: { status: "PENDING" } });
+    const { startExecution } = recordingStartExecution();
+    expect(await approve(owner, workspaceId, approvalId, startExecution, beforeDeadline)).toMatchObject({ ok: true });
+  });
+
+  it("leaves an Approval decided before the deadline untouched by a later sweep", async () => {
+    const { owner, workspaceId, approvalId, beforeDeadline, afterDeadline } = await setUpPending();
+    const { startExecution } = recordingStartExecution();
+    await approve(owner, workspaceId, approvalId, startExecution, beforeDeadline);
+
+    await expireOverdueApprovals(afterDeadline);
+
+    expect(await getApproval(owner, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { status: "APPROVED", decidedBy: "Olivia", decidedAt: beforeDeadline.now() },
+    });
+    expect(await listActivity(owner, workspaceId)).toMatchObject({
+      ok: true,
+      value: [{ event: "APPROVAL_APPROVED" }, { event: "PROPOSED_ACTION_SUBMITTED" }, { event: "BRAND_CREATED" }],
+    });
+  });
+
+  it("refuses to reject at 7 days + 1 s, and marks the Approval EXPIRED", async () => {
+    const { adam, workspaceId, approvalId, afterDeadline } = await setUpPending();
+
+    const result = await reject(adam, workspaceId, approvalId, { comment: "Too late." }, afterDeadline);
+
+    expect(result).toMatchObject({ ok: false, error: { code: "CONFLICT", message: APPROVAL_EXPIRED } });
+    expect(await getApproval(adam, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { status: "EXPIRED", decidedBy: null, comment: null },
+    });
+  });
+
+  it("is final: an expired Approval can't be approved, rejected or resubmitted, and is expired once", async () => {
+    const { owner, workspaceId, approvalId, afterDeadline } = await setUpPending();
+    await expireOverdueApprovals(afterDeadline);
+    const { startExecution, startedApprovalIds } = recordingStartExecution();
+    const expired = { ok: false, error: { code: "CONFLICT", message: APPROVAL_EXPIRED } };
+
+    expect(await approve(owner, workspaceId, approvalId, startExecution, afterDeadline)).toMatchObject(expired);
+    expect(await reject(owner, workspaceId, approvalId, { comment: "Too late." }, afterDeadline)).toMatchObject(expired);
+    expect(await resubmit(owner, workspaceId, approvalId)).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    await expireOverdueApprovals(afterDeadline);
+
+    expect(startedApprovalIds).toEqual([]);
+    const activity = await listActivity(owner, workspaceId);
+    const expiries = activity.ok ? activity.value.filter((entry) => entry.event === "APPROVAL_EXPIRED") : [];
+    expect(expiries).toHaveLength(1);
+  });
+
+  it("refuses to approve at 7 days + 1 s, before any sweep: the Approval is EXPIRED, logged by the system, and nothing starts", async () => {
+    const { owner, workspaceId, brandId, approvalId, afterDeadline } = await setUpPending();
+    const { startExecution, startedApprovalIds } = recordingStartExecution();
+
+    const result = await approve(owner, workspaceId, approvalId, startExecution, afterDeadline);
+
+    expect(result).toMatchObject({ ok: false, error: { code: "CONFLICT", message: APPROVAL_EXPIRED } });
+    expect(startedApprovalIds).toEqual([]);
+    expect(await getApproval(owner, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { status: "EXPIRED", decidedBy: null, decidedAt: null },
+    });
+    expect(await listActivity(owner, workspaceId)).toMatchObject({
+      ok: true,
+      value: [
+        { event: "APPROVAL_EXPIRED", actorName: null, brand: { id: brandId }, approvalId, details: { payloadHash: EXPECTED_HASH } },
+        { event: "PROPOSED_ACTION_SUBMITTED" },
+        { event: "BRAND_CREATED" },
+      ],
+    });
   });
 });

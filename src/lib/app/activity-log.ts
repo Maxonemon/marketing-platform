@@ -34,6 +34,8 @@ const activitySchema = z.discriminatedUnion("event", [
     event: z.literal("APPROVAL_SUPERSEDED"),
     details: z.object({ payloadHash: z.string(), supersededById: z.string() }),
   }),
+  // Nobody decided it within 7 days; the system is the actor.
+  z.object({ event: z.literal("APPROVAL_EXPIRED"), details: z.object({ payloadHash: z.string() }) }),
   z.object({ event: z.literal("EXECUTION_SUCCEEDED"), details: z.object({ channel: z.enum(CHANNELS), attempt: z.number() }) }),
 ]);
 

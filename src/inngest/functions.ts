@@ -1,4 +1,5 @@
 import { createAiProvider } from "@/lib/ai/create-provider";
+import { expireOverdueApprovals } from "@/lib/app/approvals";
 import { runContentTask } from "@/lib/app/content-requests";
 import { createMockChannel } from "@/lib/channels/mock-channel";
 import { aiEnv } from "@/lib/env";
@@ -35,4 +36,12 @@ export const executeApprovalFunction = inngest.createFunction(
   async ({ event }) => executeApproval(event.data.approvalId, { MOCK: createMockChannel() }),
 );
 
-export const functions = [runContentTaskFunction, executeApprovalFunction];
+// Every 15 minutes, expire the Pending Approvals past their 7-day deadline. Deciding
+// re-checks the deadline itself, so this only keeps statuses and the queue current; the
+// count expired is the run's output in Inngest.
+export const expireApprovalsFunction = inngest.createFunction(
+  { id: "expire-overdue-approvals", triggers: [{ cron: "*/15 * * * *" }] },
+  async () => ({ expired: await expireOverdueApprovals() }),
+);
+
+export const functions = [runContentTaskFunction, executeApprovalFunction, expireApprovalsFunction];
