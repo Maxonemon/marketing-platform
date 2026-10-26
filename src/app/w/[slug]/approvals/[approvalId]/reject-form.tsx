@@ -28,11 +28,11 @@ export function RejectForm({ action }: RejectFormProps) {
           className={INPUT_CLASS}
         />
       </Field>
-      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
+      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-danger">{state.message}</p>}
       <button
         type="submit"
         disabled={pending}
-        className="self-start rounded border border-zinc-500/60 px-3 py-2 disabled:opacity-50"
+        className="btn btn-secondary"
       >
         Reject
       </button>

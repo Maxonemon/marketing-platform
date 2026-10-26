@@ -22,11 +22,11 @@ export function SubmitVariantForm({ action, contentAssetId, variant }: SubmitVar
     <form action={formAction} className="flex flex-col gap-2">
       <input type="hidden" name="contentAssetId" value={contentAssetId} />
       <AudienceField audience={state.audience ?? ""} errors={state.fieldErrors?.audience} />
-      {state.message && !state.fieldErrors?.audience && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
+      {state.message && !state.fieldErrors?.audience && <p role="alert" className="text-sm text-danger">{state.message}</p>}
       <button
         type="submit"
         disabled={pending}
-        className="self-start rounded bg-foreground px-3 py-2 text-sm text-background disabled:opacity-50"
+        className="btn btn-primary"
       >
         Submit Variant {variant} for approval
       </button>

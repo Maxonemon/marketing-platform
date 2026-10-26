@@ -15,11 +15,11 @@ export function ApproveForm({ action }: ApproveFormProps) {
 
   return (
     <form action={formAction} className="flex flex-col gap-2">
-      {state.message && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
+      {state.message && <p role="alert" className="text-sm text-danger">{state.message}</p>}
       <button
         type="submit"
         disabled={pending}
-        className="self-start rounded bg-foreground px-3 py-2 text-background disabled:opacity-50"
+        className="btn btn-primary"
       >
         Approve and execute
       </button>

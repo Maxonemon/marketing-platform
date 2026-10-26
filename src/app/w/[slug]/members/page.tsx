@@ -30,8 +30,8 @@ async function Members({ params }: MembersPageProps) {
   return (
     <>
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">Members</h1>
-        <p className="text-sm text-zinc-500">
+        <h1>Members</h1>
+        <p className="text-sm text-muted">
           Owners and Admins approve and invite; Members draft and edit. Only Owners change roles or remove members.
         </p>
       </div>
@@ -39,8 +39,8 @@ async function Members({ params }: MembersPageProps) {
       {result.value.invitations.length > 0 && <Invitations list={result.value} />}
       {canInvite && (
         <section className="flex flex-col gap-3">
-          <h2 className="text-lg font-semibold">Invite someone</h2>
-          <p className="text-sm text-zinc-500">
+          <h2 className="text-base font-semibold">Invite someone</h2>
+          <p className="text-sm text-muted">
             No email is sent: they become a member the first time they sign in with this email.
           </p>
           <InviteForm action={inviteAction.bind(null, workspace.id)} />
@@ -59,12 +59,12 @@ interface MemberListProps {
 function MemberRows({ list, workspace }: MemberListProps) {
   const isOwner = workspace.role === "OWNER";
   return (
-    <ul className="flex flex-col divide-y divide-zinc-500/30 rounded border border-zinc-500/30">
+    <ul className="surface flex flex-col divide-y divide-line overflow-hidden">
       {list.members.map((member) => (
         <li key={member.userId} className="flex flex-col gap-2 px-3 py-2 text-sm">
           <div className="flex flex-wrap justify-between gap-2">
             <span className="wrap-break-word">
-              <span className="font-medium">{member.name}</span> <span className="text-zinc-500">{member.email}</span>
+              <span className="font-medium">{member.name}</span> <span className="text-muted">{member.email}</span>
             </span>
             <span>{ROLE_LABELS[member.role]}</span>
           </div>
@@ -83,12 +83,12 @@ function MemberRows({ list, workspace }: MemberListProps) {
 function Invitations({ list }: Pick<MemberListProps, "list">) {
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-lg font-semibold">Invited, not signed in yet</h2>
+      <h2 className="text-base font-semibold">Invited, not signed in yet</h2>
       <ul className="flex flex-col gap-1 text-sm">
         {list.invitations.map((invitation) => (
           <li key={invitation.id} className="wrap-break-word">
             {invitation.email} as {ROLE_LABELS[invitation.role]}{" "}
-            <span className="text-zinc-500">
+            <span className="text-muted">
               invited by {invitation.invitedBy} <Timestamp date={invitation.invitedAt} />
             </span>
           </li>

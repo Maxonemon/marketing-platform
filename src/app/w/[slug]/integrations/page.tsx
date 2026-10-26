@@ -23,15 +23,15 @@ async function Integrations({ params }: IntegrationsPageProps) {
   const { actor, workspace } = await requireWorkspace(slug);
   const heading = (
     <div className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold">Integrations</h1>
-      <p className="text-sm text-zinc-500">Slack tells the team when something needs a decision. It only notifies: deciding happens here.</p>
+      <h1>Integrations</h1>
+      <p className="text-sm text-muted">Slack tells the team when something needs a decision. It only notifies: deciding happens here.</p>
     </div>
   );
   if (workspace.role === "MEMBER") {
     return (
       <>
         {heading}
-        <p className="text-zinc-500">Only Owners and Admins manage Integrations.</p>
+        <p className="text-muted">Only Owners and Admins manage Integrations.</p>
       </>
     );
   }
@@ -43,9 +43,9 @@ async function Integrations({ params }: IntegrationsPageProps) {
     <>
       {heading}
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold">Slack</h2>
+        <h2 className="text-base font-semibold">Slack</h2>
         {slack === null ? (
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-muted">
             Not connected. In Slack, add an incoming webhook for the channel to notify, then paste its URL here. It is
             stored encrypted and never shown in full again.
           </p>
@@ -53,13 +53,13 @@ async function Integrations({ params }: IntegrationsPageProps) {
           <>
             <p className="text-sm">
               {slack.maskedWebhookUrl === null ? (
-                <span className="text-red-600">The stored webhook URL can&apos;t be read: paste it again below.</span>
+                <span className="text-danger">The stored webhook URL can&apos;t be read: paste it again below.</span>
               ) : (
                 <>
                   Connected to <code className="break-all">{slack.maskedWebhookUrl}</code>
                 </>
               )}{" "}
-              <span className="text-zinc-500">
+              <span className="text-muted">
                 (changed <Timestamp date={slack.updatedAt} />)
               </span>
             </p>

@@ -4,7 +4,10 @@ import { Suspense } from "react";
 import { getTask, type TaskAiUsage, type TaskDetail } from "@/lib/app/tasks";
 import { CHANNEL_LABELS, CONTENT_TYPE_LABELS } from "@/lib/content-options";
 import { requireWorkspace } from "../../require-workspace";
-import { TASK_STATUS_LABELS, TaskTimes, taskTitle } from "../task-display";
+import { PageHeader, PageSkeleton } from "../../ui";
+import { cancelTaskAction } from "../actions";
+import { TaskActionForm } from "../task-action-form";
+import { TaskStatusBadge, TaskTimes, taskTitle } from "../task-display";
 
 interface TaskDetailPageProps {
   params: Promise<{ slug: string; taskId: string }>;
@@ -12,7 +15,7 @@ interface TaskDetailPageProps {
 
 export default function TaskDetailPage({ params }: TaskDetailPageProps) {
   return (
-    <Suspense fallback={<p>Loading…</p>}>
+    <Suspense fallback={<PageSkeleton />}>
       <TaskDetailView params={params} />
     </Suspense>
   );
@@ -27,20 +30,34 @@ async function TaskDetailView({ params }: TaskDetailPageProps) {
 
   return (
     <>
-      <div className="flex flex-col gap-1 text-sm">
-        <Link href={`/w/${workspace.slug}/tasks`} className="text-zinc-500 underline">
-          All Tasks
-        </Link>
-        <h1 className="text-2xl font-semibold">{taskTitle(task)}</h1>
-        <p>Status: {TASK_STATUS_LABELS[task.status]}</p>
-        <TaskTimes task={task} />
-      </div>
-      <section className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold">Input</h2>
+      <PageHeader
+        back={{ href: `/w/${workspace.slug}/tasks`, label: "All Tasks" }}
+        title={
+          <span className="flex flex-wrap items-center gap-3">
+            {taskTitle(task)} <TaskStatusBadge status={task.status} />
+          </span>
+        }
+        description={<TaskTimes task={task} />}
+        actions={
+          task.status === "IN_REVIEW" ? (
+            <Link href={`/w/${workspace.slug}/tasks/${task.id}/review`} className="btn btn-primary">
+              Open the Review
+            </Link>
+          ) : task.status === "QUEUED" ? (
+            <TaskActionForm
+              action={cancelTaskAction.bind(null, workspace.id, task.id)}
+              label="Cancel Task"
+              confirmation="Cancel this Task? The agent won't write anything for it."
+            />
+          ) : null
+        }
+      />
+      <section className="surface flex flex-col gap-3 p-5">
+        <h2 className="text-base font-semibold">Input</h2>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="font-medium">Brand</dt>
           <dd>
-            <Link href={`/w/${workspace.slug}/brands/${task.brand.id}`} className="underline">
+            <Link href={`/w/${workspace.slug}/brands/${task.brand.id}`} className="link">
               {task.brand.name}
             </Link>
           </dd>
@@ -53,19 +70,19 @@ async function TaskDetailView({ params }: TaskDetailPageProps) {
         </dl>
       </section>
       <section className="flex flex-col gap-2 text-sm">
-        <h2 className="text-lg font-semibold">Result</h2>
+        <h2 className="text-base font-semibold">Result</h2>
         <TaskResult task={task} workspaceSlug={workspace.slug} />
       </section>
       {task.aiUsage && (
         <section className="flex flex-col gap-2 text-sm">
-          <h2 className="text-lg font-semibold">AI usage</h2>
+          <h2 className="text-base font-semibold">AI usage</h2>
           <AiUsage usage={task.aiUsage} />
         </section>
       )}
       {task.error && (
-        <section className="flex flex-col gap-2 text-sm">
-          <h2 className="text-lg font-semibold">Error</h2>
-          <p role="alert" className="wrap-break-word text-red-600">
+        <section className="flex flex-col gap-2 rounded-[10px] border border-danger/30 bg-danger-soft p-5 text-sm">
+          <h2 className="text-base font-semibold text-danger">Error</h2>
+          <p role="alert" className="wrap-break-word text-danger">
             {task.error}
           </p>
         </section>
@@ -84,21 +101,21 @@ function TaskResult({ task, workspaceSlug }: TaskResultProps) {
   switch (task.status) {
     case "QUEUED":
     case "RUNNING":
-      return <p className="text-zinc-500">The content agent is writing in the background. Refresh to see progress.</p>;
+      return <p className="text-muted">The content agent is writing in the background. Refresh to see progress.</p>;
     case "IN_REVIEW":
       return (
         <p>
           {variants} ready.{" "}
-          <Link href={`/w/${workspaceSlug}/tasks/${task.id}/review`} className="underline">
+          <Link href={`/w/${workspaceSlug}/tasks/${task.id}/review`} className="link">
             Open the Review
           </Link>
         </p>
       );
     case "FAILED":
     case "CANCELLED":
-      return <p className="text-zinc-500">Nothing was written.</p>;
+      return <p className="text-muted">Nothing was written.</p>;
     case "COMPLETED":
-      return <p>{variants} written.</p>;
+      return <p>{variants} written. The Review is closed: submitted for approval, or discarded.</p>;
   }
 }
 

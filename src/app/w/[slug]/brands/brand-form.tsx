@@ -68,12 +68,12 @@ export function BrandForm({ action, initialValues = {}, submitLabel }: BrandForm
         values={values}
         errors={errors}
       />
-      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
-      {state.saved && <p role="status" className="text-sm text-green-600">Saved.</p>}
+      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-danger">{state.message}</p>}
+      {state.saved && <p role="status" className="text-sm text-success">Saved.</p>}
       <button
         type="submit"
         disabled={pending}
-        className="self-start rounded bg-foreground px-3 py-2 text-background disabled:opacity-50"
+        className="btn btn-primary"
       >
         {submitLabel}
       </button>

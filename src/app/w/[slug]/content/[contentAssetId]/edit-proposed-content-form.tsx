@@ -29,11 +29,11 @@ export function EditProposedContentForm({ action, subject, body, audience }: Edi
         errors={state.fieldErrors}
       />
       <AudienceField audience={values?.audience ?? audience ?? ""} errors={state.fieldErrors?.audience} />
-      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
+      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-danger">{state.message}</p>}
       <button
         type="submit"
         disabled={pending}
-        className="self-start rounded bg-foreground px-3 py-2 text-sm text-background disabled:opacity-50"
+        className="btn btn-primary"
       >
         Submit the edit for approval
       </button>

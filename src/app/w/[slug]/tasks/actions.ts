@@ -6,7 +6,10 @@ import { sendContentRequested } from "@/inngest/client";
 import { contentFromForm, type ContentInput } from "@/lib/app/content-edits";
 import { requestContent, type ContentRequestInput } from "@/lib/app/content-requests";
 import type { FieldErrors } from "@/lib/app/result";
-import { editVariant, submitReview } from "@/lib/app/reviews";
+import { discardReview, editVariant, submitReview } from "@/lib/app/reviews";
+import { cancelTask } from "@/lib/app/tasks";
+import { notifyTeam } from "@/lib/app/notifications";
+import { createSlackNotifier } from "@/lib/notifications/slack-notifier";
 import { requireActor } from "@/lib/session";
 
 export interface RequestContentFormState {
@@ -96,5 +99,32 @@ export async function submitReviewAction(
   const audience = String(formData.get("audience") ?? "");
   const result = await submitReview(actor, workspaceId, taskId, { contentAssetId, audience });
   if (!result.ok) return { message: result.error.message, fieldErrors: result.error.fieldErrors, audience };
+  await notifyTeam(createSlackNotifier(), { kind: "APPROVAL_PENDING", approvalId: result.value.id });
   redirect(`/w/${workspaceSlug}/approvals/${result.value.id}`);
+}
+
+export interface TaskActionFormState {
+  message?: string;
+}
+
+export type TaskActionFormAction = (previous: TaskActionFormState, formData: FormData) => Promise<TaskActionFormState>;
+
+// Cancels a QUEUED Task. Bound ids are trusted only as far as cancelTask checks them
+// (membership, a Task scoped to the Workspace and still QUEUED). The form sends no fields.
+export async function cancelTaskAction(workspaceId: string, taskId: string): Promise<TaskActionFormState> {
+  const actor = await requireActor();
+  const result = await cancelTask(actor, workspaceId, taskId);
+  if (!result.ok) return { message: result.error.message };
+  refresh();
+  return {};
+}
+
+// Closes an open Review without submitting. Bound ids are trusted only as far as
+// discardReview checks them (membership, a Task scoped to the Workspace and IN_REVIEW).
+// The bound slug only shapes the caller's own redirect, which always stays under /w/.
+export async function discardReviewAction(workspaceId: string, workspaceSlug: string, taskId: string): Promise<TaskActionFormState> {
+  const actor = await requireActor();
+  const result = await discardReview(actor, workspaceId, taskId);
+  if (!result.ok) return { message: result.error.message };
+  redirect(`/w/${workspaceSlug}/tasks/${taskId}`);
 }

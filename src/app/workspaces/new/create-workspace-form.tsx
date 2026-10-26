@@ -13,7 +13,7 @@ export function CreateWorkspaceForm() {
     <form action={formAction} className="flex flex-col gap-3">
       <label className="flex flex-col gap-1 text-sm">
         Name
-        <input name="name" required maxLength={WORKSPACE_NAME_MAX_LENGTH} className="rounded border px-2 py-1.5" />
+        <input name="name" required maxLength={WORKSPACE_NAME_MAX_LENGTH} className="input" />
         <FieldError messages={state.fieldErrors?.name} />
       </label>
       <label className="flex flex-col gap-1 text-sm">
@@ -24,12 +24,12 @@ export function CreateWorkspaceForm() {
           pattern={SLUG_PATTERN.source}
           minLength={SLUG_MIN_LENGTH}
           maxLength={SLUG_MAX_LENGTH}
-          className="rounded border px-2 py-1.5"
+          className="input"
         />
         <FieldError messages={state.fieldErrors?.slug} />
       </label>
-      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
-      <button type="submit" disabled={pending} className="rounded bg-foreground px-3 py-2 text-background disabled:opacity-50">
+      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-danger">{state.message}</p>}
+      <button type="submit" disabled={pending} className="btn btn-primary">
         Create Workspace
       </button>
     </form>
@@ -42,5 +42,5 @@ interface FieldErrorProps {
 
 function FieldError({ messages }: FieldErrorProps) {
   if (!messages?.length) return null;
-  return <span role="alert" className="text-red-600">{messages.join(" ")}</span>;
+  return <span role="alert" className="text-danger">{messages.join(" ")}</span>;
 }

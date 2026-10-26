@@ -7,9 +7,9 @@ interface RuleViolationsProps {
 // The Brand rules a Variant breaks, as warnings: they never block a submission, and the
 // Approver decides.
 export function RuleViolations({ violations }: RuleViolationsProps) {
-  if (violations.length === 0) return <p className="text-sm text-zinc-500">Follows the Brand rules.</p>;
+  if (violations.length === 0) return <p className="text-sm text-muted">Follows the Brand rules.</p>;
   return (
-    <div className="flex flex-col gap-1 rounded border border-amber-500/50 bg-amber-500/10 p-2 text-sm">
+    <div className="flex flex-col gap-1 rounded-md border border-warning/30 bg-warning-soft text-warning p-2 text-sm">
       <p className="font-medium">Brand rule warnings</p>
       <ul className="list-disc pl-5">
         {violations.map((violation) => (

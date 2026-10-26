@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { sendApprovalApproved } from "@/inngest/client";
 import { approve, reject, resubmit } from "@/lib/app/approvals";
 import type { FieldErrors } from "@/lib/app/result";
+import { notifyTeam } from "@/lib/app/notifications";
+import { createSlackNotifier } from "@/lib/notifications/slack-notifier";
 import { requireActor } from "@/lib/session";
 
 export interface ApproveFormState {
@@ -63,5 +65,6 @@ export async function resubmitAction(workspaceId: string, workspaceSlug: string,
   const actor = await requireActor();
   const result = await resubmit(actor, workspaceId, approvalId);
   if (!result.ok) return { message: result.error.message };
+  await notifyTeam(createSlackNotifier(), { kind: "APPROVAL_PENDING", approvalId: result.value.id });
   redirect(`/w/${workspaceSlug}/approvals/${result.value.id}`);
 }

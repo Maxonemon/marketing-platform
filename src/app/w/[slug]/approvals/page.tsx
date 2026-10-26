@@ -28,20 +28,20 @@ async function ApprovalQueue({ params }: ApprovalQueuePageProps) {
   return (
     <>
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">Approvals</h1>
-        <p className="text-sm text-zinc-500">
+        <h1>Approvals</h1>
+        <p className="text-sm text-muted">
           Pending Approvals in this Workspace, oldest first. Owners and Admins approve or reject them.
         </p>
       </div>
       {approvals.length === 0 ? (
-        <p className="text-zinc-500">Nothing is waiting for a decision.</p>
+        <p className="text-muted">Nothing is waiting for a decision.</p>
       ) : (
-        <ul className="flex flex-col divide-y divide-zinc-500/30 rounded border border-zinc-500/30">
+        <ul className="surface flex flex-col divide-y divide-line overflow-hidden">
           {approvals.map((approval) => (
             <li key={approval.id}>
-              <Link href={`/w/${workspace.slug}/approvals/${approval.id}`} className="flex flex-col gap-1 px-3 py-2 text-sm hover:bg-zinc-500/10">
+              <Link href={`/w/${workspace.slug}/approvals/${approval.id}`} className="flex flex-col gap-1 px-3 py-2 text-sm hover:bg-subtle">
                 <span className="font-medium">{taskTitle(approval.task)}</span>
-                <span className="text-zinc-500">
+                <span className="text-muted">
                   Submitted by {approval.submittedBy} <Timestamp date={approval.submittedAt} />
                 </span>
               </Link>
@@ -50,7 +50,7 @@ async function ApprovalQueue({ params }: ApprovalQueuePageProps) {
         </ul>
       )}
       {approvals.length === APPROVAL_QUEUE_PAGE_SIZE && (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted">
           Showing the oldest {APPROVAL_QUEUE_PAGE_SIZE} Pending Approvals. Decide these to see the rest.
         </p>
       )}

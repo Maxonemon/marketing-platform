@@ -33,16 +33,16 @@ async function ContentAssetView({ params }: ContentAssetPageProps) {
   return (
     <>
       <div className="flex flex-col gap-1 text-sm">
-        <Link href={`/w/${workspace.slug}/tasks/${task.id}`} className="text-zinc-500 underline">
+        <Link href={`/w/${workspace.slug}/tasks/${task.id}`} className="text-muted underline">
           Task details
         </Link>
-        <h1 className="text-2xl font-semibold">
+        <h1>
           Variant {contentAsset.variant}: {taskTitle(task)}
         </h1>
-        <p className="text-zinc-500">The editable draft. What goes out is always an approved Proposed Action of it.</p>
+        <p className="text-muted">The editable draft. What goes out is always an approved Proposed Action of it.</p>
       </div>
       <section className="flex flex-col gap-2 text-sm">
-        <h2 className="text-lg font-semibold">Content as it is now</h2>
+        <h2 className="text-base font-semibold">Content as it is now</h2>
         {contentAsset.subject && (
           <p className="wrap-break-word">
             <span className="font-medium">Subject:</span> {contentAsset.subject}
@@ -53,12 +53,12 @@ async function ContentAssetView({ params }: ContentAssetPageProps) {
       </section>
       <Edit contentAsset={contentAsset} workspaceId={workspace.id} workspaceSlug={workspace.slug} />
       <section className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold">Proposed Actions</h2>
-        <p className="text-sm text-zinc-500">Every version proposed for approval, newest first. None of them ever changes.</p>
+        <h2 className="text-base font-semibold">Proposed Actions</h2>
+        <p className="text-sm text-muted">Every version proposed for approval, newest first. None of them ever changes.</p>
         {contentAsset.proposals.length === 0 ? (
-          <p className="text-sm text-zinc-500">Nothing has been submitted yet.</p>
+          <p className="text-sm text-muted">Nothing has been submitted yet.</p>
         ) : (
-          <ol className="flex flex-col divide-y divide-zinc-500/30">
+          <ol className="flex flex-col divide-y divide-line">
             {contentAsset.proposals.map((entry) => (
               <ProposalItem key={entry.proposedActionId} entry={entry} workspaceSlug={workspace.slug} />
             ))}
@@ -82,7 +82,7 @@ function Edit({ contentAsset, workspaceId, workspaceSlug }: EditProps) {
   if (!latest?.approval) return null;
   if (!latest.approval.isEditable) {
     return (
-      <p className="text-sm text-zinc-500">
+      <p className="text-sm text-muted">
         The newest version is {APPROVAL_STATUS_LABELS[latest.approval.status].toLowerCase()}
         {latest.approval.status === "APPROVED" && " and has gone out or is going out"}, so it can&apos;t be edited.
       </p>
@@ -90,8 +90,8 @@ function Edit({ contentAsset, workspaceId, workspaceSlug }: EditProps) {
   }
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-lg font-semibold">Edit</h2>
-      <p className="text-sm text-zinc-500">
+      <h2 className="text-base font-semibold">Edit</h2>
+      <p className="text-sm text-muted">
         Any change to the text or the audience makes a new Proposed Action with a new Pending Approval.{" "}
         {latest.approval.status === "REJECTED"
           ? "It resubmits the rejected one, which stays as it is."
@@ -123,25 +123,25 @@ function ProposalItem({ entry, workspaceSlug }: ProposalItemProps) {
         ) : (
           <span className="font-medium">No Approval</span>
         )}{" "}
-        <span className="text-zinc-500">
+        <span className="text-muted">
           · submitted by {entry.createdBy} <Timestamp date={entry.createdAt} />
         </span>
       </p>
       {entry.payload ? (
         <>
           <p className="wrap-break-word">
-            <span className="font-medium">Audience:</span> {entry.payload.audience ?? <em className="text-zinc-500">None</em>}
+            <span className="font-medium">Audience:</span> {entry.payload.audience ?? <em className="text-muted">None</em>}
           </p>
           {entry.payload.content.subject && (
             <p className="wrap-break-word">
               <span className="font-medium">Subject:</span> {entry.payload.content.subject}
             </p>
           )}
-          <p className="wrap-break-word whitespace-pre-wrap text-zinc-500">{entry.payload.content.body}</p>
+          <p className="wrap-break-word whitespace-pre-wrap text-muted">{entry.payload.content.body}</p>
           <RuleViolations violations={entry.violations} />
         </>
       ) : (
-        <p role="alert" className="text-red-600">
+        <p role="alert" className="text-danger">
           The stored Proposed Action no longer matches its hash, so it will never be executed.
         </p>
       )}

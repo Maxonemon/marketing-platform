@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { contentFromForm } from "@/lib/app/content-edits";
 import { editProposedContent, type ProposedContentInput } from "@/lib/app/content-assets";
 import type { FieldErrors } from "@/lib/app/result";
+import { notifyTeam } from "@/lib/app/notifications";
+import { createSlackNotifier } from "@/lib/notifications/slack-notifier";
 import { requireActor } from "@/lib/session";
 
 export interface EditProposedContentFormState {
@@ -33,5 +35,6 @@ export async function editProposedContentAction(
   const values: ProposedContentInput = { ...contentFromForm(formData), audience: String(formData.get("audience") ?? "") };
   const result = await editProposedContent(actor, workspaceId, approvalId, values);
   if (!result.ok) return { message: result.error.message, fieldErrors: result.error.fieldErrors, values };
+  await notifyTeam(createSlackNotifier(), { kind: "APPROVAL_PENDING", approvalId: result.value.id });
   redirect(`/w/${workspaceSlug}/approvals/${result.value.id}`);
 }

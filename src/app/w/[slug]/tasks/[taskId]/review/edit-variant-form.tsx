@@ -28,12 +28,12 @@ export function EditVariantForm({ action, subject, body }: EditVariantFormProps)
           body={values?.body ?? body}
           errors={state.fieldErrors}
         />
-        {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
-        {state.saved && <p className="text-sm text-zinc-500">Saved. The Brand rules were checked again.</p>}
+        {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-danger">{state.message}</p>}
+        {state.saved && <p className="text-sm text-muted">Saved. The Brand rules were checked again.</p>}
         <button
           type="submit"
           disabled={pending}
-          className="self-start rounded border border-zinc-500/60 px-3 py-2 disabled:opacity-50"
+          className="btn btn-secondary"
         >
           Save edit
         </button>

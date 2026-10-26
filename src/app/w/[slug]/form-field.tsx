@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export const INPUT_CLASS = "rounded border px-2 py-1.5";
+export const INPUT_CLASS = "input";
 
 interface FieldProps {
   label: string;
@@ -14,7 +14,7 @@ export function Field({ label, errors, children }: FieldProps) {
     <label className="flex flex-col gap-1 text-sm">
       {label}
       {children}
-      {errors?.length ? <span role="alert" className="text-red-600">{errors.join(" ")}</span> : null}
+      {errors?.length ? <span role="alert" className="text-danger">{errors.join(" ")}</span> : null}
     </label>
   );
 }

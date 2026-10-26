@@ -51,9 +51,9 @@ async function ApprovalView({ params }: ApprovalPageProps) {
   return (
     <>
       <div className="flex flex-col gap-1 text-sm">
-        <h1 className="text-2xl font-semibold">Approval: {taskTitle(task)}</h1>
+        <h1>Approval: {taskTitle(task)}</h1>
         <p>Status: {APPROVAL_STATUS_LABELS[approval.status]}</p>
-        <span className="text-zinc-500">
+        <span className="text-muted">
           Submitted by {proposedAction.createdBy} <Timestamp date={proposedAction.createdAt} />
           {approval.decidedBy && approval.decidedAt && (
             <>
@@ -74,50 +74,50 @@ async function ApprovalView({ params }: ApprovalPageProps) {
           </p>
         )}
         {approval.supersededById && (
-          <Link href={`/w/${workspace.slug}/approvals/${approval.supersededById}`} className="underline">
+          <Link href={`/w/${workspace.slug}/approvals/${approval.supersededById}`} className="link">
             The content was edited after this was submitted, so it will never be executed: view the new Approval
           </Link>
         )}
         {approval.supersedesId && (
-          <Link href={`/w/${workspace.slug}/approvals/${approval.supersedesId}`} className="underline">
+          <Link href={`/w/${workspace.slug}/approvals/${approval.supersedesId}`} className="link">
             This replaces an earlier version of the content: view it
           </Link>
         )}
         {approval.resubmissionOfId && (
-          <Link href={`/w/${workspace.slug}/approvals/${approval.resubmissionOfId}`} className="underline">
+          <Link href={`/w/${workspace.slug}/approvals/${approval.resubmissionOfId}`} className="link">
             This resubmits a rejected Approval: view it
           </Link>
         )}
       </div>
       <section className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold">Proposed Action</h2>
-        <p className="text-sm text-zinc-500">
+        <h2 className="text-base font-semibold">Proposed Action</h2>
+        <p className="text-sm text-muted">
           Exactly what would be executed. It never changes: an edit makes a new Proposed Action that needs a new approval.{" "}
-          <Link href={`/w/${workspace.slug}/content/${approval.contentAsset.id}`} className="underline">
+          <Link href={`/w/${workspace.slug}/content/${approval.contentAsset.id}`} className="link">
             Edit the content or see its history
           </Link>
         </p>
         {proposedAction.payload ? (
           <ProposedActionFields payload={proposedAction.payload} payloadHash={proposedAction.payloadHash} />
         ) : (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger">
             The stored Proposed Action no longer matches its hash, so it will never be executed.
           </p>
         )}
       </section>
       <section className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold">Brand rules</h2>
-        <p className="text-sm text-zinc-500">Checked on the proposed text when it was submitted. Warnings only: you decide.</p>
+        <h2 className="text-base font-semibold">Brand rules</h2>
+        <p className="text-sm text-muted">Checked on the proposed text when it was submitted. Warnings only: you decide.</p>
         <RuleViolations violations={proposedAction.violations} />
       </section>
       {approval.status === "PENDING" && <Decision approval={approval} workspace={workspace} />}
       {approval.status === "REJECTED" && <Resubmission approval={approval} workspace={workspace} />}
       <section className="flex flex-col gap-2 text-sm">
-        <h2 className="text-lg font-semibold">Execution</h2>
+        <h2 className="text-base font-semibold">Execution</h2>
         <Executions approval={approval} />
       </section>
       <section className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold">Context</h2>
+        <h2 className="text-base font-semibold">Context</h2>
         <ApprovalContext approval={approval} workspaceSlug={workspace.slug} />
       </section>
     </>
@@ -135,11 +135,11 @@ interface ApprovalActionsProps {
 function Decision({ approval, workspace }: ApprovalActionsProps) {
   const isApprover = workspace.role === "OWNER" || workspace.role === "ADMIN";
   if (!isApprover) {
-    return <p className="text-sm text-zinc-500">Waiting for an Owner or Admin to decide.</p>;
+    return <p className="text-sm text-muted">Waiting for an Owner or Admin to decide.</p>;
   }
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-lg font-semibold">Decision</h2>
+      <h2 className="text-base font-semibold">Decision</h2>
       {approval.proposedAction.payload && <ApproveForm action={approveAction.bind(null, workspace.id, approval.id)} />}
       <RejectForm action={rejectAction.bind(null, workspace.id, approval.id)} />
     </section>
@@ -157,11 +157,11 @@ function Resubmission({ approval, workspace }: ApprovalActionsProps) {
   }
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-lg font-semibold">Resubmit</h2>
-      <p className="text-sm text-zinc-500">
+      <h2 className="text-base font-semibold">Resubmit</h2>
+      <p className="text-sm text-muted">
         Proposes the Content Asset, as it is now, as a new Proposed Action with a new Pending Approval. This rejected
         one stays as it is. To change the content first,{" "}
-        <Link href={`/w/${workspace.slug}/content/${approval.contentAsset.id}`} className="underline">
+        <Link href={`/w/${workspace.slug}/content/${approval.contentAsset.id}`} className="link">
           edit it
         </Link>{" "}
         instead: the edit is resubmitted.
@@ -182,21 +182,21 @@ function ApprovalContext({ approval: { task, contentAsset }, workspaceSlug }: Ap
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
       <dt className="font-medium">Brand</dt>
       <dd>
-        <Link href={`/w/${workspaceSlug}/brands/${task.brand.id}`} className="underline">
+        <Link href={`/w/${workspaceSlug}/brands/${task.brand.id}`} className="link">
           {task.brand.name}
         </Link>
       </dd>
       <dt className="font-medium">Task</dt>
       <dd>
-        <Link href={`/w/${workspaceSlug}/tasks/${task.id}`} className="underline">
+        <Link href={`/w/${workspaceSlug}/tasks/${task.id}`} className="link">
           {taskTitle(task)}
         </Link>
       </dd>
       <dt className="font-medium">Content Asset</dt>
       <dd className="flex flex-col gap-1">
         <span>Variant {contentAsset.variant}, the editable draft it was proposed from, as it is now:</span>
-        {contentAsset.subject && <span className="wrap-break-word text-zinc-500">Subject: {contentAsset.subject}</span>}
-        <span className="wrap-break-word whitespace-pre-wrap text-zinc-500">{contentAsset.body}</span>
+        {contentAsset.subject && <span className="wrap-break-word text-muted">Subject: {contentAsset.subject}</span>}
+        <span className="wrap-break-word whitespace-pre-wrap text-muted">{contentAsset.body}</span>
       </dd>
       <dt className="font-medium">Brief</dt>
       <dd className="wrap-break-word whitespace-pre-wrap">{task.input.brief}</dd>
@@ -217,19 +217,19 @@ function ProposedActionFields({ payload, payloadHash }: ProposedActionFieldsProp
       <dt className="font-medium">Content type</dt>
       <dd>{CONTENT_TYPE_LABELS[payload.contentType]}</dd>
       <dt className="font-medium">Audience</dt>
-      <dd className="wrap-break-word">{payload.audience ?? <em className="text-zinc-500">None</em>}</dd>
+      <dd className="wrap-break-word">{payload.audience ?? <em className="text-muted">None</em>}</dd>
       <dt className="font-medium">Timing</dt>
       <dd>{TIMING_LABELS[payload.timing.kind]}</dd>
       {payload.content.subject && (
         <>
           <dt className="font-medium">Subject</dt>
-          <dd className="wrap-break-word rounded border border-zinc-500/30 p-2">{payload.content.subject}</dd>
+          <dd className="wrap-break-word rounded-md border border-line bg-subtle p-3">{payload.content.subject}</dd>
         </>
       )}
       <dt className="font-medium">Content</dt>
-      <dd className="wrap-break-word whitespace-pre-wrap rounded border border-zinc-500/30 p-2">{payload.content.body}</dd>
+      <dd className="wrap-break-word whitespace-pre-wrap rounded-md border border-line bg-subtle p-3">{payload.content.body}</dd>
       <dt className="font-medium">Payload hash</dt>
-      <dd className="font-mono text-xs break-all text-zinc-500">{payloadHash}</dd>
+      <dd className="font-mono text-xs break-all text-muted">{payloadHash}</dd>
     </dl>
   );
 }
@@ -242,9 +242,9 @@ interface ExecutionsProps {
 function Executions({ approval }: ExecutionsProps) {
   if (approval.executions.length === 0) {
     return approval.status === "APPROVED" ? (
-      <p className="text-zinc-500">Executing in the background. Refresh to see the result.</p>
+      <p className="text-muted">Executing in the background. Refresh to see the result.</p>
     ) : (
-      <p className="text-zinc-500">Nothing is executed until the Proposed Action is approved.</p>
+      <p className="text-muted">Nothing is executed until the Proposed Action is approved.</p>
     );
   }
   const last = approval.executions.at(-1);
@@ -255,15 +255,15 @@ function Executions({ approval }: ExecutionsProps) {
         {approval.executions.map((execution) => (
           <li key={execution.id} className="wrap-break-word">
             Attempt {execution.attempt}: {EXECUTION_STATUS_LABELS[execution.status]}{" "}
-            <Timestamp date={execution.finishedAt ?? execution.startedAt} className="text-zinc-500" />
-            {execution.error && <span className="text-red-600"> {execution.error}</span>}
+            <Timestamp date={execution.finishedAt ?? execution.startedAt} className="text-muted" />
+            {execution.error && <span className="text-danger"> {execution.error}</span>}
             {execution.result !== null && (
-              <span className="font-mono text-xs text-zinc-500"> {JSON.stringify(execution.result)}</span>
+              <span className="font-mono text-xs text-muted"> {JSON.stringify(execution.result)}</span>
             )}
           </li>
         ))}
       </ol>
-      {willRetry && <p className="text-zinc-500">Retrying in the background with the same approval. Refresh to see the result.</p>}
+      {willRetry && <p className="text-muted">Retrying in the background with the same approval. Refresh to see the result.</p>}
     </>
   );
 }

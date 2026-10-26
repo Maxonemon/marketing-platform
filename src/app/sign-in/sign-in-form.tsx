@@ -36,8 +36,8 @@ export function SignInForm() {
         type="password"
         autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
       />
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-      <button type="submit" disabled={pending} className="rounded bg-foreground px-3 py-2 text-background disabled:opacity-50">
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+      <button type="submit" disabled={pending} className="btn btn-primary">
         {mode === "sign-in" ? "Sign in" : "Create account"}
       </button>
       <button
@@ -81,7 +81,7 @@ function Field({ label, name, type, autoComplete }: FieldProps) {
   return (
     <label className="flex flex-col gap-1 text-sm">
       {label}
-      <input name={name} type={type} autoComplete={autoComplete} required className="rounded border px-2 py-1.5" />
+      <input name={name} type={type} autoComplete={autoComplete} required className="input" />
     </label>
   );
 }

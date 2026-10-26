@@ -7,7 +7,7 @@ import type { IntegrationFormAction, IntegrationFormState } from "./actions";
 
 const INITIAL_STATE: IntegrationFormState = {};
 
-const BUTTON_CLASS = "self-start rounded border border-zinc-500/60 px-3 py-1.5 disabled:opacity-50";
+const BUTTON_CLASS = "btn btn-secondary";
 
 interface IntegrationFormProps {
   action: IntegrationFormAction;
@@ -35,8 +35,8 @@ export function ConnectSlackForm({ action, connected }: ConnectSlackFormProps) {
           className={INPUT_CLASS}
         />
       </Field>
-      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
-      {state.saved && <p className="text-sm text-zinc-500">Saved. Send a test message to check it.</p>}
+      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-danger">{state.message}</p>}
+      {state.saved && <p className="text-sm text-muted">Saved. Send a test message to check it.</p>}
       <button type="submit" disabled={pending} className={BUTTON_CLASS}>
         {connected ? "Replace webhook URL" : "Connect Slack"}
       </button>
@@ -52,8 +52,8 @@ export function TestSlackForm({ action }: IntegrationFormProps) {
       <button type="submit" disabled={pending} className={BUTTON_CLASS}>
         Send a test message
       </button>
-      {state.message && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
-      {state.saved && <p className="text-sm text-zinc-500">Sent. Check the Slack channel.</p>}
+      {state.message && <p role="alert" className="text-sm text-danger">{state.message}</p>}
+      {state.saved && <p className="text-sm text-muted">Sent. Check the Slack channel.</p>}
     </form>
   );
 }
@@ -66,7 +66,7 @@ export function RemoveSlackForm({ action }: IntegrationFormProps) {
       <button type="submit" disabled={pending} className={BUTTON_CLASS}>
         Remove Slack
       </button>
-      {state.message && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
+      {state.message && <p role="alert" className="text-sm text-danger">{state.message}</p>}
     </form>
   );
 }

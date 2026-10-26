@@ -35,10 +35,10 @@ async function BrandSettings({ params }: BrandSettingsPageProps) {
   return (
     <>
       <div className="flex flex-col gap-1">
-        <Link href={`/w/${workspace.slug}/brands`} className="text-sm text-zinc-500 underline">
+        <Link href={`/w/${workspace.slug}/brands`} className="text-sm text-muted underline">
           All Brands
         </Link>
-        <h1 className="text-2xl font-semibold">{name}</h1>
+        <h1>{name}</h1>
         {websiteLink && (
           <a href={websiteLink} target="_blank" rel="noopener noreferrer" className="text-sm underline">
             {websiteLink}
@@ -46,12 +46,12 @@ async function BrandSettings({ params }: BrandSettingsPageProps) {
         )}
       </div>
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold">Request content</h2>
-        <p className="text-sm text-zinc-500">The content agent writes it in the background, in this Brand&apos;s voice. Follow it in Tasks.</p>
+        <h2 className="text-base font-semibold">Request content</h2>
+        <p className="text-sm text-muted">The content agent writes it in the background, in this Brand&apos;s voice. Follow it in Tasks.</p>
         <RequestContentForm action={requestContentAction.bind(null, workspace.id, workspace.slug, id)} />
       </section>
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold">Settings</h2>
+        <h2 className="text-base font-semibold">Settings</h2>
         <BrandForm
           action={updateBrandAction.bind(null, workspace.id, id)}
           initialValues={{

@@ -27,10 +27,10 @@ export function SignOutButton() {
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <button type="button" onClick={signOut} disabled={pending} className="text-sm underline disabled:opacity-50">
+      <button type="button" onClick={signOut} disabled={pending} className="text-sm text-muted hover:text-foreground disabled:opacity-50">
         Sign out
       </button>
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </div>
   );
 }

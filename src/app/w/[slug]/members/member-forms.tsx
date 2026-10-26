@@ -9,7 +9,7 @@ import { ROLE_LABELS } from "./role-display";
 
 const INITIAL_STATE: MemberFormState = {};
 
-const BUTTON_CLASS = "self-start rounded border border-zinc-500/60 px-3 py-1.5 disabled:opacity-50";
+const BUTTON_CLASS = "btn btn-secondary";
 
 const ROLES = Object.keys(ROLE_LABELS) as WorkspaceRole[];
 
@@ -39,8 +39,8 @@ export function InviteForm({ action }: MemberFormProps) {
           <option value="ADMIN">{ROLE_LABELS.ADMIN}: also approves and invites</option>
         </select>
       </Field>
-      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
-      {state.saved && <p className="text-sm text-zinc-500">Invited. They join the first time they sign in with that email.</p>}
+      {state.message && !state.fieldErrors && <p role="alert" className="text-sm text-danger">{state.message}</p>}
+      {state.saved && <p className="text-sm text-muted">Invited. They join the first time they sign in with that email.</p>}
       <button type="submit" disabled={pending} className={BUTTON_CLASS}>
         Invite
       </button>
@@ -68,7 +68,7 @@ export function RoleForm({ action, role }: RoleFormProps) {
       <button type="submit" disabled={pending} className={BUTTON_CLASS}>
         Change role
       </button>
-      {state.message && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
+      {state.message && <p role="alert" className="text-sm text-danger">{state.message}</p>}
     </form>
   );
 }
@@ -82,7 +82,7 @@ export function RemoveForm({ action }: MemberFormProps) {
       <button type="submit" disabled={pending} className={BUTTON_CLASS}>
         Remove
       </button>
-      {state.message && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
+      {state.message && <p role="alert" className="text-sm text-danger">{state.message}</p>}
     </form>
   );
 }

@@ -26,23 +26,23 @@ async function Brands({ params }: BrandsPageProps) {
 
   return (
     <>
-      <h1 className="text-2xl font-semibold">Brands</h1>
+      <h1>Brands</h1>
       {brands.value.length === 0 ? (
-        <p className="text-zinc-500">No Brands yet. An agency adds one Brand per client.</p>
+        <p className="text-muted">No Brands yet. An agency adds one Brand per client.</p>
       ) : (
-        <ul className="flex flex-col divide-y divide-zinc-500/30 rounded border border-zinc-500/30">
+        <ul className="surface flex flex-col divide-y divide-line overflow-hidden">
           {brands.value.map((brand) => (
             <li key={brand.id}>
-              <Link href={`/w/${workspace.slug}/brands/${brand.id}`} className="flex justify-between gap-4 px-3 py-2 hover:bg-zinc-500/10">
+              <Link href={`/w/${workspace.slug}/brands/${brand.id}`} className="flex justify-between gap-4 px-3 py-2 hover:bg-subtle">
                 <span className="font-medium">{brand.name}</span>
-                {brand.industry && <span className="text-sm text-zinc-500">{brand.industry}</span>}
+                {brand.industry && <span className="text-sm text-muted">{brand.industry}</span>}
               </Link>
             </li>
           ))}
         </ul>
       )}
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold">Add a Brand</h2>
+        <h2 className="text-base font-semibold">Add a Brand</h2>
         <BrandForm action={createBrandAction.bind(null, workspace.id, workspace.slug)} submitLabel="Create Brand" />
       </section>
     </>
