@@ -31,3 +31,6 @@ export const CONTENT_BODY_MAX_LENGTH = 5000;
 export const AUDIENCE_MAX_LENGTH = 1000;
 
 export const APPROVAL_COMMENT_MAX_LENGTH = 1000;
+
+// Slack's incoming webhook URLs are about 80 characters.
+export const SLACK_WEBHOOK_URL_MAX_LENGTH = 500;

@@ -7,6 +7,7 @@ import { BRAND_FIELDS } from "./brand-fields";
 import { ok, type Result } from "./result";
 
 const WORKSPACE_ROLES = ["OWNER", "ADMIN", "MEMBER"] as const;
+const INTEGRATION_TYPES = ["SLACK"] as const;
 
 // The Activity Log page shows this many of the newest entries. Filters come in ticket 14.
 export const ACTIVITY_LOG_PAGE_SIZE = 100;
@@ -58,6 +59,15 @@ const activitySchema = z.discriminatedUnion("event", [
   z.object({
     event: z.literal("EXECUTION_FAILED"),
     details: z.object({ attempt: z.number(), error: z.string(), final: z.boolean() }),
+  }),
+  // Integrations are named by type only: their credentials never reach the log.
+  z.object({ event: z.literal("INTEGRATION_CONNECTED"), details: z.object({ type: z.enum(INTEGRATION_TYPES) }) }),
+  z.object({ event: z.literal("INTEGRATION_UPDATED"), details: z.object({ type: z.enum(INTEGRATION_TYPES) }) }),
+  z.object({ event: z.literal("INTEGRATION_REMOVED"), details: z.object({ type: z.enum(INTEGRATION_TYPES) }) }),
+  // A test message: `error` is the app's own safe message, null when it went out.
+  z.object({
+    event: z.literal("INTEGRATION_TESTED"),
+    details: z.object({ type: z.enum(INTEGRATION_TYPES), error: z.string().nullable() }),
   }),
 ]);
 

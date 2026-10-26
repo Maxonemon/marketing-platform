@@ -97,6 +97,7 @@ model Workspace {
   tasks           Task[]
   proposedActions ProposedAction[]
   activity        ActivityLogEntry[]
+  integrations    Integration[]
 }
 
 model WorkspaceMember {
@@ -324,6 +325,27 @@ model Execution {
   @@index([status, startedAt])
 }
 
+enum IntegrationType {
+  SLACK
+}
+
+// A Workspace's credentialed connection to an outside service, at most one of each type
+// (src/lib/app/integrations.ts). Only SLACK exists so far; it only notifies. The
+// credentials are kept only in `credentialsEnc`, sealed by src/lib/credentials.ts for
+// this Workspace and type: for SLACK, the incoming webhook URL.
+model Integration {
+  id             String          @id @default(cuid())
+  workspaceId    String
+  type           IntegrationType
+  credentialsEnc String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, type])
+}
+
 enum ActivityEvent {
   BRAND_CREATED
   BRAND_UPDATED
@@ -339,6 +361,10 @@ enum ActivityEvent {
   MEMBER_JOINED
   MEMBER_ROLE_CHANGED
   MEMBER_REMOVED
+  INTEGRATION_CONNECTED
+  INTEGRATION_UPDATED
+  INTEGRATION_REMOVED
+  INTEGRATION_TESTED
 }
 
 // Append-only: src/lib/app/activity-log.ts only ever inserts entries. NoAction keeps a
