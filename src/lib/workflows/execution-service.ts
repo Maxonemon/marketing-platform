@@ -1,6 +1,7 @@
 import type { Execution, ExecutionStatus, ProposedAction } from "@/generated/prisma/client";
 import { appendActivity } from "@/lib/app/activity-log";
 import { lockApproval, type StartExecution } from "@/lib/app/approvals";
+import { notifyTeam } from "@/lib/app/notifications";
 import {
   NotDeliveredError,
   type ChannelAdapter,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/channels/channel-adapter";
 import { systemClock, type Clock } from "@/lib/clock";
 import { db } from "@/lib/db";
+import type { Notifier } from "@/lib/notifications/notifier";
 import { verifyPayload } from "./proposed-action-payload";
 
 export type ExecutionRefusal =
@@ -69,11 +71,18 @@ function idempotencyKeyFor(approvalId: string): string {
 // recomputed payload hash matches the stored one and another attempt is allowed, and
 // records the attempt. Only the re-validated payload is sent, never the raw stored JSON.
 // A failure is recorded and returned, never thrown, so the Channel's error goes nowhere.
-export async function executeApproval(approvalId: string, channels: ChannelAdapters): Promise<ExecutionOutcome> {
+// A final failure is reported to the team through `notifier`, after it commits.
+export async function executeApproval(
+  approvalId: string,
+  channels: ChannelAdapters,
+  notifier?: Notifier,
+): Promise<ExecutionOutcome> {
   const claim = await claimAttempt(approvalId);
   if (typeof claim === "string") return refused(claim);
   const delivered = await deliver(channels[claim.delivery.payload.channel], claim.delivery);
-  return recordAttempt(claim, delivered);
+  const { outcome, failedFinally } = await recordAttempt(claim, delivered);
+  if (failedFinally && notifier) await notifyTeam(notifier, { kind: "EXECUTION_FAILED", approvalId });
+  return outcome;
 }
 
 interface Claim {
@@ -136,16 +145,22 @@ async function deliver(channel: ChannelAdapter, delivery: Delivery): Promise<Del
   }
 }
 
+interface RecordedAttempt {
+  outcome: ExecutionOutcome;
+  // True when this call logged a failure that no retry follows.
+  failedFinally: boolean;
+}
+
 // Finishes the attempt and logs it with the system as the actor, in one transaction. A
 // failure is final after the last attempt, and always when it may have gone out.
 // A delivery so slow that the reconcile sweep already marked it UNCERTAIN keeps that mark
 // and its log entry, unless it succeeded: a known success is recorded over it. A late
 // failure never turns it back into a retryable FAILED.
-function recordAttempt({ execution, proposedAction, delivery }: Claim, delivered: DeliveryAttempt): Promise<ExecutionOutcome> {
+function recordAttempt({ execution, proposedAction, delivery }: Claim, delivered: DeliveryAttempt): Promise<RecordedAttempt> {
   const { id: executionId, approvalId, attempt } = execution;
   const entry = { workspaceId: proposedAction.workspaceId, actor: "system", brandId: proposedAction.brandId, approvalId } as const;
   const finishedAt = new Date();
-  return db.$transaction(async (tx): Promise<ExecutionOutcome> => {
+  return db.$transaction(async (tx): Promise<RecordedAttempt> => {
     if (delivered.status === "SUCCEEDED") {
       await tx.execution.updateMany({
         where: { id: executionId, status: { in: ["STARTED", "UNCERTAIN"] } },
@@ -153,7 +168,7 @@ function recordAttempt({ execution, proposedAction, delivery }: Claim, delivered
       });
       const details = { channel: delivery.payload.channel, attempt };
       await appendActivity(tx, { ...entry, event: "EXECUTION_SUCCEEDED", details });
-      return { status: "SUCCEEDED", executionId };
+      return { outcome: { status: "SUCCEEDED", executionId }, failedFinally: false };
     }
     const isUncertain = delivered.status === "UNCERTAIN";
     const error = isUncertain ? DELIVERY_UNCERTAIN : DELIVERY_FAILED;
@@ -162,9 +177,12 @@ function recordAttempt({ execution, proposedAction, delivery }: Claim, delivered
       where: { id: executionId, status: "STARTED" },
       data: { status: delivered.status, error, finishedAt },
     });
-    if (finished.count === 0) return { status: "UNCERTAIN", executionId };
+    if (finished.count === 0) return { outcome: { status: "UNCERTAIN", executionId }, failedFinally: false };
     await appendActivity(tx, { ...entry, event: "EXECUTION_FAILED", details: { attempt, error, final: !willRetry } });
-    return isUncertain ? { status: "UNCERTAIN", executionId } : { status: "FAILED", executionId, willRetry };
+    const outcome: ExecutionOutcome = isUncertain
+      ? { status: "UNCERTAIN", executionId }
+      : { status: "FAILED", executionId, willRetry };
+    return { outcome, failedFinally: !willRetry };
   });
 }
 
@@ -183,11 +201,16 @@ export interface ReconcileOutcome {
 // are never retried and the version stays locked against edits. Starting twice is
 // harmless: each attempt is claimed under the Approval's lock, and attempts stay bounded.
 // The two steps are independent: an event that can't be sent doesn't stop the marking.
-export async function reconcileExecutions(startExecution: StartExecution, clock: Clock = systemClock): Promise<ReconcileOutcome> {
+// Each attempt it marks UNCERTAIN is a final failure, reported through `notifier`.
+export async function reconcileExecutions(
+  startExecution: StartExecution,
+  clock: Clock = systemClock,
+  notifier?: Notifier,
+): Promise<ReconcileOutcome> {
   const now = clock.now().getTime();
   const quietSince = new Date(now - EXECUTION_START_GRACE_MINUTES * MINUTE_MS);
   const { started, failedToStart } = await startIdleExecutions(startExecution, quietSince);
-  const markedUncertain = await markAbandonedAttempts(new Date(now - STALE_ATTEMPT_MINUTES * MINUTE_MS));
+  const markedUncertain = await markAbandonedAttempts(new Date(now - STALE_ATTEMPT_MINUTES * MINUTE_MS), notifier);
   return { started, failedToStart, markedUncertain };
 }
 
@@ -222,7 +245,7 @@ async function startIdleExecutions(
   return { started, failedToStart: idle.length - started };
 }
 
-async function markAbandonedAttempts(startedBefore: Date): Promise<number> {
+async function markAbandonedAttempts(startedBefore: Date, notifier?: Notifier): Promise<number> {
   const abandoned = await db.execution.findMany({
     where: { status: "STARTED", startedAt: { lte: startedBefore } },
     orderBy: { startedAt: "asc" },
@@ -231,7 +254,9 @@ async function markAbandonedAttempts(startedBefore: Date): Promise<number> {
   });
   let markedUncertain = 0;
   for (const execution of abandoned) {
-    if (await markAbandoned(execution, execution.approval.proposedAction)) markedUncertain += 1;
+    if (!(await markAbandoned(execution, execution.approval.proposedAction))) continue;
+    markedUncertain += 1;
+    if (notifier) await notifyTeam(notifier, { kind: "EXECUTION_FAILED", approvalId: execution.approvalId });
   }
   return markedUncertain;
 }

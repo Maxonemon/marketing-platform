@@ -1,11 +1,23 @@
-import type { Prisma, TaskStatus, TaskType } from "@/generated/prisma/client";
+import { z } from "zod";
+import { TaskStatus, type Prisma, type TaskType } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { requireRole, type Actor } from "@/lib/permissions";
+import { appendActivity } from "./activity-log";
 import { contentRequestSchema, type ContentRequest } from "./content-requests";
 import { fail, ok, type Result } from "./result";
 
-// Task history shows this many of the newest Tasks. Filters come in ticket 14.
+// Task history shows this many of the newest Tasks that match its filters.
 export const TASK_HISTORY_PAGE_SIZE = 100;
+
+export const TASK_STATUSES = Object.values(TaskStatus) as [TaskStatus, ...TaskStatus[]];
+
+// From the page's query string: each filter is optional and only narrows the list.
+const taskFiltersSchema = z.object({
+  brandId: z.string().min(1).optional(),
+  status: z.enum(TASK_STATUSES, "Choose a status.").optional(),
+});
+
+export type TaskFiltersInput = z.input<typeof taskFiltersSchema>;
 
 export interface TaskSummary {
   id: string;
@@ -37,6 +49,7 @@ export interface TaskAiUsage {
 }
 
 const TASK_NOT_FOUND = "Task not found.";
+export const ONLY_QUEUED_CANCELLABLE = "Only a queued Task can be cancelled: this one has already started.";
 
 export const taskSummaryInclude = {
   brand: { select: { id: true, name: true } },
@@ -60,12 +73,15 @@ export function toTaskSummary(row: TaskSummaryRow): TaskSummary {
   };
 }
 
-// Newest first. Only members of the Workspace can read its Tasks.
-export async function listTasks(actor: Actor, workspaceId: string): Promise<Result<TaskSummary[]>> {
+// Newest first. Only members of the Workspace can read its Tasks; filters only narrow
+// within it, so a Brand id from another Workspace simply matches nothing.
+export async function listTasks(actor: Actor, workspaceId: string, filters: TaskFiltersInput = {}): Promise<Result<TaskSummary[]>> {
   const access = await requireRole(actor, workspaceId, "MEMBER");
   if (!access.ok) return access;
+  const parsed = taskFiltersSchema.safeParse(filters);
+  if (!parsed.success) return fail("INVALID_INPUT", "Check the filters.", z.flattenError(parsed.error).fieldErrors);
   const rows = await db.task.findMany({
-    where: { workspaceId },
+    where: { workspaceId, ...parsed.data },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: TASK_HISTORY_PAGE_SIZE,
     include: taskSummaryInclude,
@@ -91,4 +107,23 @@ type AiUsageFields = Pick<Prisma.TaskGetPayload<object>, "aiModel" | "inputToken
 function toAiUsage({ aiModel, inputTokens, outputTokens, costMicroUsd }: AiUsageFields): TaskAiUsage | null {
   if (aiModel === null || inputTokens === null || outputTokens === null || costMicroUsd === null) return null;
   return { model: aiModel, inputTokens, outputTokens, costMicroUsd };
+}
+
+// Any member can cancel a QUEUED Task. The background run claims only a QUEUED Task, so a
+// cancelled one never calls the AI; the status moves only if it is still QUEUED, so a run
+// that claimed it first wins and the cancel is refused.
+export async function cancelTask(actor: Actor, workspaceId: string, taskId: string): Promise<Result<void>> {
+  const access = await requireRole(actor, workspaceId, "MEMBER");
+  if (!access.ok) return access;
+  return db.$transaction(async (tx): Promise<Result<void>> => {
+    const task = await tx.task.findFirst({ where: { id: taskId, workspaceId }, select: { brandId: true } });
+    if (!task) return fail("NOT_FOUND", TASK_NOT_FOUND);
+    const cancelled = await tx.task.updateMany({
+      where: { id: taskId, workspaceId, status: "QUEUED" },
+      data: { status: "CANCELLED", finishedAt: new Date() },
+    });
+    if (cancelled.count === 0) return fail("CONFLICT", ONLY_QUEUED_CANCELLABLE);
+    await appendActivity(tx, { workspaceId, actor, brandId: task.brandId, taskId, event: "TASK_CANCELLED", details: {} });
+    return ok(undefined);
+  });
 }

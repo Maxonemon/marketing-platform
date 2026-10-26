@@ -2,7 +2,9 @@ import { createAiProvider } from "@/lib/ai/create-provider";
 import { expireOverdueApprovals } from "@/lib/app/approvals";
 import { runContentTask } from "@/lib/app/content-requests";
 import { createMockChannel } from "@/lib/channels/mock-channel";
+import { systemClock } from "@/lib/clock";
 import { aiEnv, mockChannelEnv } from "@/lib/env";
+import { createSlackNotifier } from "@/lib/notifications/slack-notifier";
 import { DELIVERY_FAILED, executeApproval, reconcileExecutions } from "@/lib/workflows/execution-service";
 import { approvalApproved, contentRequested, inngest, sendApprovalApproved } from "./client";
 
@@ -22,7 +24,10 @@ export const runContentTaskFunction = inngest.createFunction(
   { id: "run-content-task", triggers: [contentRequested], retries: CONTENT_TASK_RETRIES },
   async ({ event, attempt, maxAttempts = CONTENT_TASK_RETRIES + 1 }) => {
     const ai = createAiProvider(aiEnv());
-    const outcome = await runContentTask(event.data.taskId, ai, { isFinalAttempt: attempt + 1 >= maxAttempts });
+    const outcome = await runContentTask(event.data.taskId, ai, {
+      isFinalAttempt: attempt + 1 >= maxAttempts,
+      notifier: createSlackNotifier(),
+    });
     if (outcome === "RETRY") throw new ContentTaskRetry("Transient AI error: the content Task will be retried.");
   },
 );
@@ -45,7 +50,7 @@ export const executeApprovalFunction = inngest.createFunction(
   { id: "execute-approval", triggers: [approvalApproved], retries: EXECUTION_RETRIES },
   async ({ event }) => {
     const channel = createMockChannel({ failedAttempts: mockChannelEnv().failedAttempts });
-    const outcome = await executeApproval(event.data.approvalId, { MOCK: channel });
+    const outcome = await executeApproval(event.data.approvalId, { MOCK: channel }, createSlackNotifier());
     if (outcome.status === "FAILED" && outcome.willRetry) throw new ExecutionRetry(DELIVERY_FAILED);
     return outcome;
   },
@@ -63,7 +68,7 @@ export const expireApprovalsFunction = inngest.createFunction(
 // and mark attempts left STARTED as UNCERTAIN; the counts are the run's output in Inngest.
 export const reconcileExecutionsFunction = inngest.createFunction(
   { id: "reconcile-executions", triggers: [{ cron: "*/15 * * * *" }] },
-  async () => reconcileExecutions(sendApprovalApproved),
+  async () => reconcileExecutions(sendApprovalApproved, systemClock, createSlackNotifier()),
 );
 
 export const functions = [runContentTaskFunction, executeApprovalFunction, expireApprovalsFunction, reconcileExecutionsFunction];

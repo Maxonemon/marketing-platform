@@ -7,10 +7,12 @@ import { AiProviderError, type AiProvider, type AiUsage } from "@/lib/ai/provide
 import { CHANNELS, CONTENT_TYPES } from "@/lib/content-options";
 import { db } from "@/lib/db";
 import { CONTENT_BRIEF_MAX_LENGTH } from "@/lib/limits";
+import type { Notifier } from "@/lib/notifications/notifier";
 import type { Actor } from "@/lib/permissions";
 import { appendActivity } from "./activity-log";
 import { checkContent } from "./content-edits";
 import { getBrand } from "./brands";
+import { notifyTeam, type TeamNotification } from "./notifications";
 import { fail, ok, type Result } from "./result";
 
 // What a content Task is asked to write; stored as the Task's input.
@@ -67,6 +69,8 @@ export interface RunOptions {
   // False while the background runner will still retry: a transient AI error then hands
   // the Task back instead of failing it. Defaults to true: no retry follows.
   isFinalAttempt?: boolean;
+  // Tells the team once the Task is settled (Review ready, or failed), after it commits.
+  notifier?: Notifier;
 }
 
 // DONE: the Task is settled (IN_REVIEW or FAILED) or was not this run's to settle.
@@ -82,8 +86,11 @@ export type RunOutcome = "DONE" | "RETRY";
 export async function runContentTask(
   taskId: string,
   ai: AiProvider,
-  { isFinalAttempt = true }: RunOptions = {},
+  { isFinalAttempt = true, notifier }: RunOptions = {},
 ): Promise<RunOutcome> {
+  const tell = async (notification: TeamNotification) => {
+    if (notifier) await notifyTeam(notifier, notification);
+  };
   const claimed = await db.task.updateMany({
     where: { id: taskId, status: "QUEUED" },
     data: { status: "RUNNING", startedAt: new Date() },
@@ -93,11 +100,13 @@ export async function runContentTask(
     const task = await db.task.findUniqueOrThrow({ where: { id: taskId }, include: { brand: true } });
     const written = await writeVariants(ai, task.brand, contentRequestSchema.parse(task.input));
     await saveVariants(taskId, written, task.brand);
+    await tell({ kind: "REVIEW_READY", taskId });
     return "DONE";
   } catch (error: unknown) {
     if (!(error instanceof AiProviderError)) {
       // A bug or an outage: rethrown so the background runner records it with its stack.
       await failTask(taskId, TASK_FAILED_UNEXPECTEDLY);
+      await tell({ kind: "TASK_FAILED", taskId });
       throw error;
     }
     if (error.transient && !isFinalAttempt) {
@@ -105,6 +114,7 @@ export async function runContentTask(
       return "RETRY";
     }
     await failTask(taskId, error.message, error.usage);
+    await tell({ kind: "TASK_FAILED", taskId });
     return "DONE";
   }
 }

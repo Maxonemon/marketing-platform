@@ -28,8 +28,8 @@ export interface ConnectSlackInput {
 
 const SLACK_NOT_CONNECTED = "Slack isn't connected to this Workspace.";
 const INVALID_WEBHOOK_URL = "Paste a Slack incoming webhook URL: https://hooks.slack.com/services/…";
-const UNREADABLE_WEBHOOK_URL = "The stored webhook URL can't be read: connect Slack again.";
-const UNEXPECTED_NOTIFY_ERROR = "The test message couldn't be sent.";
+export const UNREADABLE_WEBHOOK_URL = "The stored webhook URL can't be read: connect Slack again.";
+const UNEXPECTED_NOTIFY_ERROR = "The message couldn't be sent.";
 
 const SLACK_WEBHOOK_ORIGIN = "https://hooks.slack.com";
 const SLACK_WEBHOOK_PATH = /^\/services\/[A-Za-z0-9]+\/[A-Za-z0-9]+\/[A-Za-z0-9]+$/;
@@ -71,7 +71,7 @@ function credentialContext(workspaceId: string): string {
 }
 
 // Slack reads &, < and > as markup, e.g. "<!channel>" notifies everyone.
-function escapeSlackText(text: string): string {
+export function escapeSlackText(text: string): string {
   return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
@@ -86,6 +86,14 @@ function readWebhookUrl(workspaceId: string, credentialsEnc: string): string | n
 
 async function findSlack(workspaceId: string) {
   return db.integration.findUnique({ where: { workspaceId_type: { workspaceId, type: "SLACK" } } });
+}
+
+// For background notifications, which act for the Workspace, not a person: no role check.
+// "NOT_CONNECTED" when there is no Slack Integration, null when its URL can't be read.
+export async function findSlackWebhookUrl(workspaceId: string): Promise<string | null | "NOT_CONNECTED"> {
+  const integration = await findSlack(workspaceId);
+  if (!integration) return "NOT_CONNECTED";
+  return readWebhookUrl(workspaceId, integration.credentialsEnc);
 }
 
 export async function getSlackIntegration(actor: Actor, workspaceId: string): Promise<Result<SlackIntegrationSummary | null>> {
@@ -155,7 +163,7 @@ export async function sendSlackTestMessage(actor: Actor, workspaceId: string, no
 }
 
 // Returns null when the message went out, else a message safe to show and log.
-async function notify(notifier: Notifier, workspaceId: string, webhookUrl: string, text: string): Promise<string | null> {
+export async function notify(notifier: Notifier, workspaceId: string, webhookUrl: string, text: string): Promise<string | null> {
   try {
     await notifier.notify(webhookUrl, { text });
     return null;

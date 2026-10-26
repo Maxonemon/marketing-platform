@@ -201,6 +201,7 @@ model Task {
   activity      ActivityLogEntry[]
 
   @@index([workspaceId, createdAt])
+  @@index([workspaceId, status])
 }
 
 // One Variant written by a content Task: an editable draft, never approved directly.
@@ -365,6 +366,9 @@ enum ActivityEvent {
   INTEGRATION_UPDATED
   INTEGRATION_REMOVED
   INTEGRATION_TESTED
+  NOTIFICATION_FAILED
+  TASK_CANCELLED
+  REVIEW_DISCARDED
 }
 
 // Append-only: src/lib/app/activity-log.ts only ever inserts entries. NoAction keeps a

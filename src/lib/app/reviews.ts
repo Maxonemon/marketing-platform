@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Approval, Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { requireRole, type Actor } from "@/lib/permissions";
+import { appendActivity } from "./activity-log";
 import { proposeAction } from "./approvals";
 import { audienceSchema, checkContent, parseContent, type ContentInput } from "./content-edits";
 import { contentRequestSchema } from "./content-requests";
@@ -108,5 +109,19 @@ export async function submitReview(
       await tx.contentAsset.findUniqueOrThrow({ where: { id: contentAssetId }, select: reviewVariantSelect }),
     );
     return ok(await proposeAction(tx, actor, { workspaceId, task, contentAsset, audience }));
+  });
+}
+
+// Any member can close an open Review without submitting a Variant: the Task becomes
+// COMPLETED with no Proposed Action, so nothing waits for approval. It takes the Review's
+// lock, so it can't land alongside a submit: whichever commits first wins.
+export async function discardReview(actor: Actor, workspaceId: string, taskId: string): Promise<Result<void>> {
+  const access = await requireRole(actor, workspaceId, "MEMBER");
+  if (!access.ok) return access;
+  return db.$transaction(async (tx): Promise<Result<void>> => {
+    if (!(await lockOpenReview(tx, workspaceId, taskId))) return fail("NOT_FOUND", REVIEW_NOT_FOUND);
+    const task = await tx.task.update({ where: { id: taskId }, data: { status: "COMPLETED" }, select: { brandId: true } });
+    await appendActivity(tx, { workspaceId, actor, brandId: task.brandId, taskId, event: "REVIEW_DISCARDED", details: {} });
+    return ok(undefined);
   });
 }

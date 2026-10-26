@@ -98,3 +98,9 @@ export function mockChannelEnv(): { failedAttempts: number } {
 export function credentialsEnv(): { credentialKey: Buffer } {
   return { credentialKey: parseEnv(credentialsEnvSchema).CREDENTIALS_ENCRYPTION_KEY };
 }
+
+// Where the app is served, for links in notifications: the Better Auth URL, checked at
+// startup with the rest of the auth env.
+export function appUrlEnv(): { appUrl: string } {
+  return { appUrl: parseEnv(authEnvSchema.pick({ BETTER_AUTH_URL: true })).BETTER_AUTH_URL.replace(/\/+$/, "") };
+}

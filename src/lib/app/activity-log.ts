@@ -1,15 +1,17 @@
 import { z } from "zod";
-import type { Prisma } from "@/generated/prisma/client";
+import { ActivityEvent, type Prisma } from "@/generated/prisma/client";
 import { CHANNELS } from "@/lib/content-options";
 import { db } from "@/lib/db";
 import { requireRole, type Actor } from "@/lib/permissions";
 import { BRAND_FIELDS } from "./brand-fields";
-import { ok, type Result } from "./result";
+import { fail, ok, type Result } from "./result";
 
 const WORKSPACE_ROLES = ["OWNER", "ADMIN", "MEMBER"] as const;
 const INTEGRATION_TYPES = ["SLACK"] as const;
+export const NOTIFICATION_KINDS = ["APPROVAL_PENDING", "REVIEW_READY", "TASK_FAILED", "EXECUTION_FAILED"] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
-// The Activity Log page shows this many of the newest entries. Filters come in ticket 14.
+// The Activity Log page shows this many of the newest entries that match its filters.
 export const ACTIVITY_LOG_PAGE_SIZE = 100;
 
 // A text setting changes from one string (or null) to another; a list setting from one
@@ -69,6 +71,16 @@ const activitySchema = z.discriminatedUnion("event", [
     event: z.literal("INTEGRATION_TESTED"),
     details: z.object({ type: z.enum(INTEGRATION_TYPES), error: z.string().nullable() }),
   }),
+  // A team notification that didn't go out: `notification` names what it was about and
+  // `error` is the app's own safe message. The operation it reported on still stands.
+  z.object({
+    event: z.literal("NOTIFICATION_FAILED"),
+    details: z.object({ type: z.enum(INTEGRATION_TYPES), notification: z.enum(NOTIFICATION_KINDS), error: z.string() }),
+  }),
+  // A member cancelled a QUEUED Task: it never calls the AI.
+  z.object({ event: z.literal("TASK_CANCELLED"), details: z.object({}) }),
+  // A member closed a Review without submitting any Variant: nothing was proposed.
+  z.object({ event: z.literal("REVIEW_DISCARDED"), details: z.object({}) }),
 ]);
 
 export type Activity = z.infer<typeof activitySchema>;
@@ -104,25 +116,62 @@ export async function appendActivity(tx: Prisma.TransactionClient, entry: NewAct
   await tx.activityLogEntry.create({ data: { workspaceId, actorId, brandId, taskId, approvalId, event, details } });
 }
 
-// Newest first. Only members of the Workspace can read its log.
-export async function listActivity(actor: Actor, workspaceId: string): Promise<Result<ActivityEntry[]>> {
+export const ACTIVITY_EVENTS = Object.values(ActivityEvent) as [ActivityEvent, ...ActivityEvent[]];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const INVALID_FILTERS = "Check the filters.";
+
+// From the page's query string: each filter is optional and only narrows the list. Dates
+// are whole days (YYYY-MM-DD, UTC); `to` includes its day.
+const activityFiltersSchema = z.object({
+  event: z.enum(ACTIVITY_EVENTS, "Choose an event type.").optional(),
+  brandId: z.string().min(1).optional(),
+  from: z.iso.date("Use a date like 2026-10-26.").optional(),
+  to: z.iso.date("Use a date like 2026-10-26.").optional(),
+});
+
+export type ActivityFiltersInput = z.input<typeof activityFiltersSchema>;
+
+const activityInclude = {
+  actor: { select: { name: true } },
+  brand: { select: { id: true, name: true } },
+} satisfies Prisma.ActivityLogEntryInclude;
+
+type ActivityRow = Prisma.ActivityLogEntryGetPayload<{ include: typeof activityInclude }>;
+
+export function toActivityEntry(row: ActivityRow): ActivityEntry {
+  return {
+    ...activitySchema.parse({ event: row.event, details: row.details }),
+    id: row.id,
+    actorName: row.actor?.name ?? null,
+    brand: row.brand,
+    taskId: row.taskId,
+    approvalId: row.approvalId,
+    createdAt: row.createdAt,
+  };
+}
+
+// Newest first, at most `take`, within the Workspace. Callers have passed requireRole.
+export async function findActivity(where: Prisma.ActivityLogEntryWhereInput & { workspaceId: string }, take: number) {
+  const rows = await db.activityLogEntry.findMany({ where, orderBy: { id: "desc" }, take, include: activityInclude });
+  return rows.map(toActivityEntry);
+}
+
+// Newest first. Only members of the Workspace can read its log; filters only narrow
+// within it, so a Brand id from another Workspace simply matches nothing.
+export async function listActivity(
+  actor: Actor,
+  workspaceId: string,
+  filters: ActivityFiltersInput = {},
+): Promise<Result<ActivityEntry[]>> {
   const access = await requireRole(actor, workspaceId, "MEMBER");
   if (!access.ok) return access;
-  const rows = await db.activityLogEntry.findMany({
-    where: { workspaceId },
-    orderBy: { id: "desc" },
-    take: ACTIVITY_LOG_PAGE_SIZE,
-    include: { actor: { select: { name: true } }, brand: { select: { id: true, name: true } } },
-  });
-  return ok(
-    rows.map((row) => ({
-      ...activitySchema.parse({ event: row.event, details: row.details }),
-      id: row.id,
-      actorName: row.actor?.name ?? null,
-      brand: row.brand,
-      taskId: row.taskId,
-      approvalId: row.approvalId,
-      createdAt: row.createdAt,
-    })),
-  );
+  const parsed = activityFiltersSchema.safeParse(filters);
+  if (!parsed.success) return fail("INVALID_INPUT", INVALID_FILTERS, z.flattenError(parsed.error).fieldErrors);
+  const { event, brandId, from, to } = parsed.data;
+  const createdAt = {
+    ...(from && { gte: new Date(from) }),
+    ...(to && { lt: new Date(new Date(to).getTime() + DAY_MS) }),
+  };
+  return ok(await findActivity({ workspaceId, event, brandId, createdAt }, ACTIVITY_LOG_PAGE_SIZE));
 }
