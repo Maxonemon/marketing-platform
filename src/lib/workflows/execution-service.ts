@@ -47,8 +47,8 @@ export const DELIVERY_UNCERTAIN =
 
 export const ATTEMPT_ABANDONED = "The attempt never finished, so it may have gone out and is not retried. Check the Channel.";
 
-// The reconcile sweep starts an Approved Approval with no attempt this long after the
-// decision (its own event should have started it by then)...
+// The reconcile sweep starts an Approved Approval that nothing is running this long after
+// the decision and its last failed attempt (its own event or retry should have run by then)...
 export const EXECUTION_START_GRACE_MINUTES = 5;
 // ...and takes an attempt still STARTED this long after it began as abandoned.
 export const STALE_ATTEMPT_MINUTES = 15;
@@ -138,13 +138,19 @@ async function deliver(channel: ChannelAdapter, delivery: Delivery): Promise<Del
 
 // Finishes the attempt and logs it with the system as the actor, in one transaction. A
 // failure is final after the last attempt, and always when it may have gone out.
+// A delivery so slow that the reconcile sweep already marked it UNCERTAIN keeps that mark
+// and its log entry, unless it succeeded: a known success is recorded over it. A late
+// failure never turns it back into a retryable FAILED.
 function recordAttempt({ execution, proposedAction, delivery }: Claim, delivered: DeliveryAttempt): Promise<ExecutionOutcome> {
   const { id: executionId, approvalId, attempt } = execution;
   const entry = { workspaceId: proposedAction.workspaceId, actor: "system", brandId: proposedAction.brandId, approvalId } as const;
   const finishedAt = new Date();
   return db.$transaction(async (tx): Promise<ExecutionOutcome> => {
     if (delivered.status === "SUCCEEDED") {
-      await tx.execution.update({ where: { id: executionId }, data: { status: "SUCCEEDED", result: delivered.result, finishedAt } });
+      await tx.execution.updateMany({
+        where: { id: executionId, status: { in: ["STARTED", "UNCERTAIN"] } },
+        data: { status: "SUCCEEDED", result: delivered.result, finishedAt },
+      });
       const details = { channel: delivery.payload.channel, attempt };
       await appendActivity(tx, { ...entry, event: "EXECUTION_SUCCEEDED", details });
       return { status: "SUCCEEDED", executionId };
@@ -152,7 +158,11 @@ function recordAttempt({ execution, proposedAction, delivery }: Claim, delivered
     const isUncertain = delivered.status === "UNCERTAIN";
     const error = isUncertain ? DELIVERY_UNCERTAIN : DELIVERY_FAILED;
     const willRetry = !isUncertain && attempt < MAX_EXECUTION_ATTEMPTS;
-    await tx.execution.update({ where: { id: executionId }, data: { status: delivered.status, error, finishedAt } });
+    const finished = await tx.execution.updateMany({
+      where: { id: executionId, status: "STARTED" },
+      data: { status: delivered.status, error, finishedAt },
+    });
+    if (finished.count === 0) return { status: "UNCERTAIN", executionId };
     await appendActivity(tx, { ...entry, event: "EXECUTION_FAILED", details: { attempt, error, final: !willRetry } });
     return isUncertain ? { status: "UNCERTAIN", executionId } : { status: "FAILED", executionId, willRetry };
   });
@@ -160,25 +170,61 @@ function recordAttempt({ execution, proposedAction, delivery }: Claim, delivered
 
 export interface ReconcileOutcome {
   started: number;
+  // Approvals whose event couldn't be sent this run; the next run tries again.
+  failedToStart: number;
   markedUncertain: number;
 }
 
 // The reconcile sweep, run by a periodic background function. It starts the Execution
-// of Approved Approvals that have no attempt (approving committed but its event was never
-// sent), and marks attempts left STARTED (the process died mid-delivery) as UNCERTAIN:
-// they may have gone out, so they are never retried and the version stays locked against
-// edits. Starting twice is harmless: each attempt is claimed under the Approval's lock.
+// of Approved Approvals that nothing is running: no attempt yet (approving committed but
+// its event was never sent), or only failed attempts with attempts left whose retries
+// stopped (e.g. the database was down for all of them). It also marks attempts left
+// STARTED (the process died mid-delivery) as UNCERTAIN: they may have gone out, so they
+// are never retried and the version stays locked against edits. Starting twice is
+// harmless: each attempt is claimed under the Approval's lock, and attempts stay bounded.
+// The two steps are independent: an event that can't be sent doesn't stop the marking.
 export async function reconcileExecutions(startExecution: StartExecution, clock: Clock = systemClock): Promise<ReconcileOutcome> {
   const now = clock.now().getTime();
-  const unstarted = await db.approval.findMany({
-    where: { status: "APPROVED", decidedAt: { lte: new Date(now - EXECUTION_START_GRACE_MINUTES * MINUTE_MS) }, executions: { none: {} } },
+  const quietSince = new Date(now - EXECUTION_START_GRACE_MINUTES * MINUTE_MS);
+  const { started, failedToStart } = await startIdleExecutions(startExecution, quietSince);
+  const markedUncertain = await markAbandonedAttempts(new Date(now - STALE_ATTEMPT_MINUTES * MINUTE_MS));
+  return { started, failedToStart, markedUncertain };
+}
+
+// Approved before `quietSince`, with every attempt (if any) FAILED, below the last
+// attempt and finished before `quietSince`. A send that throws is counted, not logged:
+// its error could carry the event key.
+async function startIdleExecutions(
+  startExecution: StartExecution,
+  quietSince: Date,
+): Promise<Pick<ReconcileOutcome, "started" | "failedToStart">> {
+  const idle = await db.approval.findMany({
+    where: {
+      status: "APPROVED",
+      decidedAt: { lte: quietSince },
+      executions: {
+        none: { OR: [{ status: { not: "FAILED" } }, { attempt: { gte: MAX_EXECUTION_ATTEMPTS } }, { finishedAt: { gt: quietSince } }] },
+      },
+    },
     orderBy: { decidedAt: "asc" },
     take: RECONCILE_BATCH_SIZE,
     select: { id: true },
   });
-  for (const { id } of unstarted) await startExecution(id);
+  let started = 0;
+  for (const { id } of idle) {
+    try {
+      await startExecution(id);
+      started += 1;
+    } catch {
+      // Reported as failedToStart; the next run tries again.
+    }
+  }
+  return { started, failedToStart: idle.length - started };
+}
+
+async function markAbandonedAttempts(startedBefore: Date): Promise<number> {
   const abandoned = await db.execution.findMany({
-    where: { status: "STARTED", startedAt: { lte: new Date(now - STALE_ATTEMPT_MINUTES * MINUTE_MS) } },
+    where: { status: "STARTED", startedAt: { lte: startedBefore } },
     orderBy: { startedAt: "asc" },
     take: RECONCILE_BATCH_SIZE,
     include: { approval: { select: { proposedAction: { select: { workspaceId: true, brandId: true } } } } },
@@ -187,11 +233,11 @@ export async function reconcileExecutions(startExecution: StartExecution, clock:
   for (const execution of abandoned) {
     if (await markAbandoned(execution, execution.approval.proposedAction)) markedUncertain += 1;
   }
-  return { started: unstarted.length, markedUncertain };
+  return markedUncertain;
 }
 
 // Only if it is still STARTED, with its log entry: true when this call marked it. A
-// delivery that does finish later still records its real result over this.
+// delivery that does finish later records a success over this, never a failure.
 function markAbandoned(execution: Execution, { workspaceId, brandId }: Pick<ProposedAction, "workspaceId" | "brandId">): Promise<boolean> {
   return db.$transaction(async (tx) => {
     const marked = await tx.execution.updateMany({

@@ -118,7 +118,9 @@ export async function inviteMember(actor: Actor, workspaceId: string, input: Inv
 // Run at every sign-in (src/lib/auth.ts), so it checks no role: it only ever acts on the
 // signed-in user's own email. Each invitation for that email becomes a membership with
 // its role and is deleted, logged with the user as the actor. Deleting first makes it a
-// claim: of two sign-ins at the same moment, one consumes it. Returns how many it consumed.
+// claim: of two sign-ins at the same moment, one consumes it. Someone who is already a
+// member keeps their role: the invitation is just deleted, and nothing is logged. Returns
+// how many Workspaces the user joined.
 // Emails are not verified yet (ADR-0002), so whoever first signs up with an invited
 // email gets the invitation.
 export async function acceptInvitations(userId: string): Promise<number> {
@@ -131,7 +133,8 @@ export async function acceptInvitations(userId: string): Promise<number> {
     const consumed = await db.$transaction(async (tx) => {
       const deleted = await tx.workspaceInvitation.deleteMany({ where: { id } });
       if (deleted.count === 0) return false;
-      await tx.workspaceMember.createMany({ data: [{ workspaceId, userId, role }], skipDuplicates: true });
+      const joined = await tx.workspaceMember.createMany({ data: [{ workspaceId, userId, role }], skipDuplicates: true });
+      if (joined.count === 0) return false;
       await appendActivity(tx, { workspaceId, actor: { userId }, event: "MEMBER_JOINED", details: { email, role } });
       return true;
     });
@@ -166,7 +169,9 @@ export async function changeRole(
 
 // Only Owners remove members, themselves included while another Owner remains. Access
 // ends at once: every operation checks membership (requireRole), so the removed member's
-// next one, on an undecided Approval too, is NOT_FOUND.
+// next one, on an undecided Approval too, is NOT_FOUND. The Workspace's pending
+// invitations that the member sent, or that are for their email, are deleted with them,
+// so neither an accomplice's invitation nor a stale one of their own brings anyone back.
 export async function removeMember(actor: Actor, workspaceId: string, memberUserId: string): Promise<Result<void>> {
   const access = await requireRole(actor, workspaceId, "OWNER");
   if (!access.ok) return access;
@@ -175,7 +180,11 @@ export async function removeMember(actor: Actor, workspaceId: string, memberUser
     if (!checked.ok) return checked;
     const { name, email, role } = checked.value;
     await tx.workspaceMember.delete({ where: { workspaceId_userId: { workspaceId, userId: memberUserId } } });
-    await appendActivity(tx, { workspaceId, actor, event: "MEMBER_REMOVED", details: { name, email, role } });
+    const cancelled = await tx.workspaceInvitation.deleteMany({
+      where: { workspaceId, OR: [{ invitedById: memberUserId }, { email: email.toLowerCase() }] },
+    });
+    const details = { name, email, role, invitationsCancelled: cancelled.count };
+    await appendActivity(tx, { workspaceId, actor, event: "MEMBER_REMOVED", details });
     return ok(undefined);
   });
 }

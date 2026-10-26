@@ -9,7 +9,9 @@ const { BETTER_AUTH_SECRET, BETTER_AUTH_URL } = authEnv();
 
 // Email + password sign-in with database sessions. No email is sent in these
 // phases, so there is no email verification or password reset yet. Every new session
-// (signing up signs in too) consumes the Workspace invitations for the user's email.
+// (signing up signs in too) consumes the Workspace invitations for the user's email. If
+// that fails the sign-in still goes through and the next one tries again; the error is
+// not logged, as it names the user's email.
 export const auth = betterAuth({
   database: prismaAdapter(db, { provider: "postgresql" }),
   secret: BETTER_AUTH_SECRET,
@@ -19,7 +21,11 @@ export const auth = betterAuth({
     session: {
       create: {
         after: async (session) => {
-          await acceptInvitations(session.userId);
+          try {
+            await acceptInvitations(session.userId);
+          } catch {
+            console.error(`User ${session.userId}: couldn't accept Workspace invitations; the next sign-in tries again.`);
+          }
         },
       },
     },

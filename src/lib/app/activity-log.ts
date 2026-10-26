@@ -1,12 +1,12 @@
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import { CHANNELS } from "@/lib/content-options";
-
-const WORKSPACE_ROLES = ["OWNER", "ADMIN", "MEMBER"] as const;
 import { db } from "@/lib/db";
 import { requireRole, type Actor } from "@/lib/permissions";
 import { BRAND_FIELDS } from "./brand-fields";
 import { ok, type Result } from "./result";
+
+const WORKSPACE_ROLES = ["OWNER", "ADMIN", "MEMBER"] as const;
 
 // The Activity Log page shows this many of the newest entries. Filters come in ticket 14.
 export const ACTIVITY_LOG_PAGE_SIZE = 100;
@@ -48,9 +48,10 @@ const activitySchema = z.discriminatedUnion("event", [
     event: z.literal("MEMBER_ROLE_CHANGED"),
     details: z.object({ name: z.string(), email: z.string(), from: z.enum(WORKSPACE_ROLES), to: z.enum(WORKSPACE_ROLES) }),
   }),
+  // `invitationsCancelled`: the pending invitations they sent, or for their email, deleted with them.
   z.object({
     event: z.literal("MEMBER_REMOVED"),
-    details: z.object({ name: z.string(), email: z.string(), role: z.enum(WORKSPACE_ROLES) }),
+    details: z.object({ name: z.string(), email: z.string(), role: z.enum(WORKSPACE_ROLES), invitationsCancelled: z.number() }),
   }),
   // The error is the execution service's own safe message, never the Channel's. `final`
   // when no retry follows: the last attempt failed, or it may have gone out.

@@ -67,6 +67,22 @@ describe("inviting", () => {
     expect(await listMyWorkspaces(nora)).toEqual([expect.objectContaining({ id: workspaceId, role: "MEMBER" })]);
   });
 
+  // Joined some other way between the invitation and the sign-in.
+  it("leaves someone who is already a member as they are: same role, no joined entry", async () => {
+    const { owner, workspaceId } = await setUpWorkspace();
+    await inviteMember(owner, workspaceId, { email: "nora@example.test", role: "ADMIN" });
+    const nora = await createTestUser("Nora");
+    await db.user.update({ where: { id: nora.userId }, data: { email: "nora@example.test" } });
+    await addTestMember(workspaceId, nora, "MEMBER");
+
+    const joined = await acceptInvitations(nora.userId);
+
+    expect(joined).toBe(0);
+    expect(await listMyWorkspaces(nora)).toEqual([expect.objectContaining({ id: workspaceId, role: "MEMBER" })]);
+    expect(await listMembers(owner, workspaceId)).toMatchObject({ ok: true, value: { invitations: [] } });
+    expect(await listActivity(owner, workspaceId)).toMatchObject({ ok: true, value: [{ event: "MEMBER_INVITED" }] });
+  });
+
   it("refuses a Member who tries to invite", async () => {
     const { mia, workspaceId } = await setUpWorkspace();
 
@@ -170,6 +186,22 @@ describe("changing roles and removing members", () => {
     expect(await listActivity(owner, workspaceId)).toMatchObject({
       ok: true,
       value: [{ event: "MEMBER_REMOVED", actorName: "Olivia", details: { name: "Adam", role: "ADMIN" } }, {}, {}],
+    });
+  });
+
+  it("cancels the invitations a removed member sent, so nobody joins through them", async () => {
+    const { owner, adam, workspaceId } = await setUpWorkspace();
+    await inviteMember(adam, workspaceId, { email: "accomplice@example.test", role: "ADMIN" });
+
+    const removed = await removeMember(owner, workspaceId, adam.userId);
+    const accomplice = await signUp("accomplice@example.test", "Accomplice");
+
+    expect(removed).toEqual({ ok: true, value: undefined });
+    expect(await listMyWorkspaces(accomplice)).toEqual([]);
+    expect(await listMembers(owner, workspaceId)).toMatchObject({ ok: true, value: { invitations: [] } });
+    expect(await listActivity(owner, workspaceId)).toMatchObject({
+      ok: true,
+      value: [{ event: "MEMBER_REMOVED", details: { name: "Adam", invitationsCancelled: 1 } }, { event: "MEMBER_INVITED" }],
     });
   });
 

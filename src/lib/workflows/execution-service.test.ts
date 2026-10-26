@@ -368,22 +368,101 @@ describe("reconciling Executions", () => {
     const afterGrace = await reconcileExecutions(startExecution, minutesFromNow(EXECUTION_START_GRACE_MINUTES + 1));
 
     expect(approved).toEqual({ ok: true, value: undefined });
-    expect(tooSoon).toEqual({ started: 0, markedUncertain: 0 });
-    expect(afterGrace).toEqual({ started: 1, markedUncertain: 0 });
+    expect(tooSoon).toEqual({ started: 0, failedToStart: 0, markedUncertain: 0 });
+    expect(afterGrace).toEqual({ started: 1, failedToStart: 0, markedUncertain: 0 });
     expect(started).toEqual([approvalId]);
   });
 
-  it("leaves an Approval that already has an attempt to the retries", async () => {
+  // Inngest's retries normally follow a failed attempt; if they all stopped before
+  // claiming one (e.g. the database was down), nothing else would run it.
+  it("leaves a recent failed attempt to the retries, and restarts one whose retries stopped", async () => {
     const { approvalId } = await setUpApproved();
     await executeApproval(approvalId, { MOCK: createMockChannel({ failedAttempts: 1 }) });
+    const started: string[] = [];
+    const startExecution: StartExecution = async (id) => {
+      started.push(id);
+    };
+
+    const recent = await reconcileExecutions(startExecution, minutesFromNow(1));
+    const stalled = await reconcileExecutions(startExecution, minutesFromNow(EXECUTION_START_GRACE_MINUTES + 1));
+
+    expect(recent).toEqual({ started: 0, failedToStart: 0, markedUncertain: 0 });
+    expect(stalled).toEqual({ started: 1, failedToStart: 0, markedUncertain: 0 });
+    expect(started).toEqual([approvalId]);
+  });
+
+  it.each([
+    ["whose last attempt failed", createMockChannel({ failedAttempts: MAX_EXECUTION_ATTEMPTS }), MAX_EXECUTION_ATTEMPTS],
+    ["that succeeded", createMockChannel(), 1],
+  ])("never restarts an Approval %s", async (_case, channel, runs) => {
+    const { approvalId } = await setUpApproved();
+    for (let run = 0; run < runs; run += 1) await executeApproval(approvalId, { MOCK: channel });
     const started: string[] = [];
 
     const outcome = await reconcileExecutions(async (id) => {
       started.push(id);
     }, minutesFromNow(EXECUTION_START_GRACE_MINUTES + 1));
 
-    expect(outcome).toEqual({ started: 0, markedUncertain: 0 });
+    expect(outcome).toEqual({ started: 0, failedToStart: 0, markedUncertain: 0 });
     expect(started).toEqual([]);
+  });
+
+  it("still marks abandoned attempts when an event can't be sent, and counts the failed send", async () => {
+    const unsent = await setUpApproved();
+    const abandonedId = await createTestApproval(unsent.mia, unsent.workspaceId, unsent.brandId, "Second post.");
+    await approve(unsent.owner, unsent.workspaceId, abandonedId, startNothing);
+    await db.execution.create({ data: { approvalId: abandonedId, idempotencyKey: `approval:${abandonedId}`, attempt: 1 } });
+
+    const outcome = await reconcileExecutions(async () => {
+      throw new Error("Inngest is unreachable: key=evt-secret");
+    }, minutesFromNow(STALE_ATTEMPT_MINUTES + 1));
+
+    expect(outcome).toEqual({ started: 0, failedToStart: 1, markedUncertain: 1 });
+  });
+
+  // The sweep runs while the Channel is still delivering, as if the delivery took longer
+  // than STALE_ATTEMPT_MINUTES.
+  const sweepMeanwhile = () => reconcileExecutions(startNothing, minutesFromNow(STALE_ATTEMPT_MINUTES + 1));
+
+  it("keeps the UNCERTAIN mark when a delivery the sweep gave up on fails late", async () => {
+    const { mia, workspaceId, approvalId } = await setUpApproved();
+    const failsLate: ChannelAdapter = {
+      deliver: async () => {
+        await sweepMeanwhile();
+        throw new NotDeliveredError("timed out");
+      },
+    };
+
+    const failed = await executeApproval(approvalId, { MOCK: failsLate });
+    const retry = await executeApproval(approvalId, { MOCK: createMockChannel() });
+
+    expect(failed).toMatchObject({ status: "UNCERTAIN" });
+    expect(retry).toEqual({ status: "REFUSED", reason: "MAY_HAVE_BEEN_DELIVERED" });
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { executions: [{ attempt: 1, status: "UNCERTAIN", error: ATTEMPT_ABANDONED }] },
+    });
+    const activity = await listActivity(mia, workspaceId);
+    const failures = activity.ok ? activity.value.filter((entry) => entry.event === "EXECUTION_FAILED") : [];
+    expect(failures.map((entry) => entry.details)).toEqual([{ attempt: 1, error: ATTEMPT_ABANDONED, final: true }]);
+  });
+
+  it("records a late success over the sweep's UNCERTAIN mark", async () => {
+    const { mia, workspaceId, approvalId } = await setUpApproved();
+    const succeedsLate: ChannelAdapter = {
+      deliver: async () => {
+        await sweepMeanwhile();
+        return { deliveryId: "late" };
+      },
+    };
+
+    const delivered = await executeApproval(approvalId, { MOCK: succeedsLate });
+
+    expect(delivered).toMatchObject({ status: "SUCCEEDED" });
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { executions: [{ attempt: 1, status: "SUCCEEDED", result: { deliveryId: "late" } }] },
+    });
   });
 
   // The process died mid-delivery: the test inserts the attempt it left STARTED.
@@ -396,8 +475,8 @@ describe("reconciling Executions", () => {
     const stale = await reconcileExecutions(startNothing, minutesFromNow(STALE_ATTEMPT_MINUTES + 1));
     const retry = await executeApproval(approvalId, { MOCK: channel });
 
-    expect(fresh).toEqual({ started: 0, markedUncertain: 0 });
-    expect(stale).toEqual({ started: 0, markedUncertain: 1 });
+    expect(fresh).toEqual({ started: 0, failedToStart: 0, markedUncertain: 0 });
+    expect(stale).toEqual({ started: 0, failedToStart: 0, markedUncertain: 1 });
     expect(retry).toEqual({ status: "REFUSED", reason: "MAY_HAVE_BEEN_DELIVERED" });
     expect(channel.deliveries).toEqual([]);
     expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({

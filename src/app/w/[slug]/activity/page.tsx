@@ -131,8 +131,11 @@ function MembershipChange({ entry }: MembershipChangeProps) {
       return `${entry.details.email} as ${ROLE_LABELS[entry.details.role]}`;
     case "MEMBER_ROLE_CHANGED":
       return `${entry.details.name} (${entry.details.email}), ${ROLE_LABELS[entry.details.from]} → ${ROLE_LABELS[entry.details.to]}`;
-    case "MEMBER_REMOVED":
-      return `${entry.details.name} (${entry.details.email}), ${ROLE_LABELS[entry.details.role]}`;
+    case "MEMBER_REMOVED": {
+      const { name, email, role, invitationsCancelled } = entry.details;
+      const cancelled = invitationsCancelled > 0 ? `; ${invitationsCancelled} pending invitation(s) cancelled` : "";
+      return `${name} (${email}), ${ROLE_LABELS[role]}${cancelled}`;
+    }
     default:
       return null;
   }
