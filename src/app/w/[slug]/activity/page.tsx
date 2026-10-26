@@ -63,6 +63,10 @@ const EVENT_TEXT: Record<ActivityEntry["event"], string> = {
   MEMBER_JOINED: "joined the Workspace from an invitation:",
   MEMBER_ROLE_CHANGED: "changed a member's role:",
   MEMBER_REMOVED: "removed a member:",
+  INTEGRATION_CONNECTED: "connected Slack",
+  INTEGRATION_UPDATED: "changed the Slack webhook URL",
+  INTEGRATION_REMOVED: "removed Slack",
+  INTEGRATION_TESTED: "sent a Slack test message",
 };
 
 interface ActivityItemProps {
@@ -104,6 +108,9 @@ function ActivityItem({ entry, workspaceSlug }: ActivityItemProps) {
           Attempt {entry.details.attempt}: {entry.details.error}
           {entry.details.final && " No retry follows."}
         </p>
+      )}
+      {entry.event === "INTEGRATION_TESTED" && (
+        <p className="wrap-break-word">{entry.details.error === null ? "It went out." : `It failed: ${entry.details.error}`}</p>
       )}
       {entry.event === "TASK_FAILED" && (
         <p className="wrap-break-word">
