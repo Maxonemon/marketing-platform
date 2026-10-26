@@ -1,5 +1,5 @@
 import { inngest } from "@/inngest/client";
-import { aiEnv, authEnv, dbEnv, inngestEnv } from "@/lib/env";
+import { aiEnv, authEnv, credentialsEnv, dbEnv, inngestEnv } from "@/lib/env";
 
 // Runs once when the server starts: missing env vars stop startup with their names.
 export function register(): void {
@@ -7,4 +7,5 @@ export function register(): void {
   authEnv();
   inngestEnv(inngest.mode);
   aiEnv();
+  credentialsEnv();
 }

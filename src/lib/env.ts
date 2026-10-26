@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AI_MODELS, isMistralModel, type AiModel, type MistralModel } from "@/lib/ai/pricing";
+import { CREDENTIAL_KEY_BYTES } from "@/lib/credentials";
 
 // Required env vars, checked lazily and once at startup (src/instrumentation.ts).
 // Errors name the missing or invalid variables, never their values.
@@ -35,6 +36,15 @@ const mistralEnvSchema = z.object({
 // Dev only: the mock Channel fails attempts up to this number (src/lib/channels/mock-channel.ts).
 const mockChannelEnvSchema = z.object({
   MOCK_CHANNEL_FAILED_ATTEMPTS: z.coerce.number().int().min(0).default(0),
+});
+
+// Encrypts Integration credentials at rest (src/lib/credentials.ts): 32 random bytes in
+// base64, e.g. from `openssl rand -base64 32`. Changing it makes stored credentials unreadable.
+const credentialsEnvSchema = z.object({
+  CREDENTIALS_ENCRYPTION_KEY: z
+    .base64()
+    .transform((value) => Buffer.from(value, "base64"))
+    .refine((key) => key.length === CREDENTIAL_KEY_BYTES),
 });
 
 export type DbEnv = z.infer<typeof dbEnvSchema>;
@@ -83,4 +93,8 @@ export function aiEnv(): AiEnv {
 
 export function mockChannelEnv(): { failedAttempts: number } {
   return { failedAttempts: parseEnv(mockChannelEnvSchema).MOCK_CHANNEL_FAILED_ATTEMPTS };
+}
+
+export function credentialsEnv(): { credentialKey: Buffer } {
+  return { credentialKey: parseEnv(credentialsEnvSchema).CREDENTIALS_ENCRYPTION_KEY };
 }

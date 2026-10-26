@@ -1,5 +1,6 @@
+import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { aiEnv, authEnv, dbEnv, inngestEnv } from "./env";
+import { aiEnv, authEnv, credentialsEnv, dbEnv, inngestEnv } from "./env";
 
 const SECRET = "s".repeat(32);
 
@@ -89,5 +90,21 @@ describe("env checks", () => {
     vi.stubEnv("NODE_ENV", "production");
 
     expect(() => aiEnv()).toThrow("Missing or invalid environment variables: AI_MODEL");
+  });
+
+  it("requires a base64 credential key of exactly 32 bytes, and names it without its value", () => {
+    const shortKey = randomBytes(16).toString("base64");
+    vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", shortKey);
+
+    expect(() => credentialsEnv()).toThrow(/^Missing or invalid environment variables: CREDENTIALS_ENCRYPTION_KEY$/);
+
+    vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", "");
+
+    expect(() => credentialsEnv()).toThrow(/^Missing or invalid environment variables: CREDENTIALS_ENCRYPTION_KEY$/);
+
+    const key = randomBytes(32);
+    vi.stubEnv("CREDENTIALS_ENCRYPTION_KEY", key.toString("base64"));
+
+    expect(credentialsEnv().credentialKey.equals(key)).toBe(true);
   });
 });

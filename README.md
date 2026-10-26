@@ -42,6 +42,7 @@ Create `.env` for the app:
 | `DATABASE_URL` | Development database, `postgresql://…` |
 | `BETTER_AUTH_SECRET` | Random string, at least 32 characters, e.g. from `openssl rand -base64 32` |
 | `BETTER_AUTH_URL` | Where the app runs, `http://localhost:3000` in development |
+| `CREDENTIALS_ENCRYPTION_KEY` | 32 random bytes in base64, from `openssl rand -base64 32`. Encrypts Integration credentials (the Slack webhook URL); changing it makes the stored ones unreadable. |
 | `INNGEST_DEV` | `1` in development: background jobs go to the local Inngest Dev Server. Elsewhere leave it unset and set `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` from your Inngest account. |
 
 Create `.env.test` for the test suite:
