@@ -47,6 +47,8 @@ export interface ExecutionSummary {
   id: string;
   attempt: number;
   status: ExecutionStatus;
+  // What the Channel reported for a success, e.g. its delivery id.
+  result: Prisma.JsonValue;
   error: string | null;
   startedAt: Date;
   finishedAt: Date | null;
@@ -107,7 +109,7 @@ const approvalDetailInclude = {
   resubmittedAs: { select: { id: true } },
   supersedes: { select: { id: true } },
   executions: {
-    select: { id: true, attempt: true, status: true, error: true, startedAt: true, finishedAt: true },
+    select: { id: true, attempt: true, status: true, result: true, error: true, startedAt: true, finishedAt: true },
     orderBy: { attempt: "asc" },
   },
   proposedAction: {
@@ -186,8 +188,9 @@ export async function lockApproval(tx: Prisma.TransactionClient, approvalId: str
 }
 
 // A Pending Approval can be superseded, and so can an Approved one until an attempt
-// starts: once it is going out, or has gone out, that version can't be replaced. A failed
-// attempt sent nothing, so it doesn't count.
+// starts: once it is going out, has gone out or may have gone out (STARTED, SUCCEEDED or
+// UNCERTAIN), that version can't be replaced. A FAILED attempt sent nothing, so it
+// doesn't count.
 export function canBeSuperseded(status: ApprovalStatus, executions: readonly { status: ExecutionStatus }[]): boolean {
   if (status === "PENDING") return true;
   return status === "APPROVED" && executions.every((execution) => execution.status === "FAILED");

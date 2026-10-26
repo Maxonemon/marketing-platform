@@ -57,6 +57,7 @@ const EVENT_TEXT: Record<ActivityEntry["event"], string> = {
   APPROVAL_SUPERSEDED: "replaced a Proposed Action with an edited one for",
   APPROVAL_EXPIRED: "expired a Proposed Action nobody decided within 7 days for",
   EXECUTION_SUCCEEDED: "executed an approved Proposed Action for",
+  EXECUTION_FAILED: "recorded a failed Execution attempt for",
 };
 
 interface ActivityItemProps {
@@ -91,6 +92,12 @@ function ActivityItem({ entry, workspaceSlug }: ActivityItemProps) {
         <Link href={`/w/${workspaceSlug}/approvals/${entry.details.supersededById}`} className="underline">
           View the new Approval
         </Link>
+      )}
+      {entry.event === "EXECUTION_FAILED" && (
+        <p className="wrap-break-word">
+          Attempt {entry.details.attempt}: {entry.details.error}
+          {entry.details.final && " No retry follows."}
+        </p>
       )}
       {entry.event === "TASK_FAILED" && (
         <p className="wrap-break-word">

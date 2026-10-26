@@ -37,6 +37,12 @@ const activitySchema = z.discriminatedUnion("event", [
   // Nobody decided it within 7 days; the system is the actor.
   z.object({ event: z.literal("APPROVAL_EXPIRED"), details: z.object({ payloadHash: z.string() }) }),
   z.object({ event: z.literal("EXECUTION_SUCCEEDED"), details: z.object({ channel: z.enum(CHANNELS), attempt: z.number() }) }),
+  // The error is the execution service's own safe message, never the Channel's. `final`
+  // when no retry follows: the last attempt failed, or it may have gone out.
+  z.object({
+    event: z.literal("EXECUTION_FAILED"),
+    details: z.object({ attempt: z.number(), error: z.string(), final: z.boolean() }),
+  }),
 ]);
 
 export type Activity = z.infer<typeof activitySchema>;

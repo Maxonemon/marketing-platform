@@ -2,8 +2,8 @@ import { createAiProvider } from "@/lib/ai/create-provider";
 import { expireOverdueApprovals } from "@/lib/app/approvals";
 import { runContentTask } from "@/lib/app/content-requests";
 import { createMockChannel } from "@/lib/channels/mock-channel";
-import { aiEnv } from "@/lib/env";
-import { executeApproval } from "@/lib/workflows/execution-service";
+import { aiEnv, mockChannelEnv } from "@/lib/env";
+import { DELIVERY_FAILED, executeApproval } from "@/lib/workflows/execution-service";
 import { approvalApproved, contentRequested, inngest } from "./client";
 
 // A transient AI error (rate limit, outage) is retried this many times, with Inngest's
@@ -27,13 +27,28 @@ export const runContentTaskFunction = inngest.createFunction(
   },
 );
 
+// Each try of the function is one attempt, so it retries MAX_EXECUTION_ATTEMPTS - 1
+// times (a literal, as Inngest's type asks). The execution service bounds attempts itself.
+export const EXECUTION_RETRIES = 2;
+
+class ExecutionRetry extends Error {
+  override name = "ExecutionRetry";
+}
+
 // Until real Integrations (Phase 4) every Channel is the mock one, which records what it
-// would have sent and publishes nothing. The outcome (succeeded, or refused and why) is
-// the run's output in Inngest. A retry after an attempt was claimed is refused as
-// ALREADY_ATTEMPTED, so nothing is delivered twice; real retries come with ticket 10.
+// would have sent and publishes nothing; MOCK_CHANNEL_FAILED_ATTEMPTS makes its first
+// attempts fail, to try retries in dev. The outcome is the run's output in Inngest. A
+// failed attempt with retries left throws only the service's safe message, never the
+// Channel's error, so Inngest runs it again with its backoff; a duplicate event or an
+// overlapping retry is refused by the service, so nothing is delivered twice.
 export const executeApprovalFunction = inngest.createFunction(
-  { id: "execute-approval", triggers: [approvalApproved] },
-  async ({ event }) => executeApproval(event.data.approvalId, { MOCK: createMockChannel() }),
+  { id: "execute-approval", triggers: [approvalApproved], retries: EXECUTION_RETRIES },
+  async ({ event }) => {
+    const channel = createMockChannel({ failedAttempts: mockChannelEnv().failedAttempts });
+    const outcome = await executeApproval(event.data.approvalId, { MOCK: channel });
+    if (outcome.status === "FAILED" && outcome.willRetry) throw new ExecutionRetry(DELIVERY_FAILED);
+    return outcome;
+  },
 );
 
 // Every 15 minutes, expire the Pending Approvals past their 7-day deadline. Deciding

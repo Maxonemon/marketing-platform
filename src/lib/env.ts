@@ -32,6 +32,11 @@ const mistralEnvSchema = z.object({
   MISTRAL_API_KEY: z.string().min(1),
 });
 
+// Dev only: the mock Channel fails attempts up to this number (src/lib/channels/mock-channel.ts).
+const mockChannelEnvSchema = z.object({
+  MOCK_CHANNEL_FAILED_ATTEMPTS: z.coerce.number().int().min(0).default(0),
+});
+
 export type DbEnv = z.infer<typeof dbEnvSchema>;
 export type AuthEnv = z.infer<typeof authEnvSchema>;
 export type AiEnv =
@@ -74,4 +79,8 @@ export function aiEnv(): AiEnv {
     throw new Error("Missing or invalid environment variables: AI_MODEL");
   }
   return { provider: "fake", model };
+}
+
+export function mockChannelEnv(): { failedAttempts: number } {
+  return { failedAttempts: parseEnv(mockChannelEnvSchema).MOCK_CHANNEL_FAILED_ATTEMPTS };
 }

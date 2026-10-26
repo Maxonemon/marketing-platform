@@ -20,6 +20,7 @@ const EXECUTION_STATUS_LABELS: Record<ExecutionStatus, string> = {
   STARTED: "Started",
   SUCCEEDED: "Succeeded",
   FAILED: "Failed",
+  UNCERTAIN: "May have gone out",
 };
 
 const TIMING_LABELS: Record<ProposedActionPayload["timing"]["kind"], string> = {

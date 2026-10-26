@@ -5,11 +5,18 @@ import { approve, expireOverdueApprovals, getApproval, type StartExecution } fro
 import { requestContent, runContentTask } from "@/lib/app/content-requests";
 import { getReview, submitReview } from "@/lib/app/reviews";
 import { getTask } from "@/lib/app/tasks";
-import type { ChannelAdapter } from "@/lib/channels/channel-adapter";
+import { editProposedContent, NOT_EDITABLE } from "@/lib/app/content-assets";
+import { NotDeliveredError, type ChannelAdapter, type Delivery } from "@/lib/channels/channel-adapter";
 import { createMockChannel } from "@/lib/channels/mock-channel";
-import { db } from "@/lib/db";
+import { db, isUniqueViolation } from "@/lib/db";
 import { addTestMember, createTestApproval, createTestBrand, createTestUser, createTestWorkspace, fakeVariants } from "@/test/fixtures";
-import { DELIVERY_FAILED, executeApproval, type ExecutionOutcome } from "./execution-service";
+import {
+  DELIVERY_FAILED,
+  DELIVERY_UNCERTAIN,
+  executeApproval,
+  MAX_EXECUTION_ATTEMPTS,
+  type ExecutionOutcome,
+} from "./execution-service";
 
 const POST_TEXT = "Our autumn blend lands Monday: cocoa, cherry and a long, warm finish.";
 
@@ -26,6 +33,12 @@ const ONE_SECOND_MS = 1000;
 
 // Long enough for an Execution started meanwhile to reach its claim.
 const SUPERSEDE_HOLD_MS = 1000;
+
+// How long the slow Channel takes, so that a second run overlaps the first's delivery.
+const SLOW_DELIVERY_MS = 1000;
+
+// A real Channel's error could carry a credential like this one.
+const SECRET_IN_ERROR = "connection reset: token=sk-secret-123";
 
 // approve's background start; these tests run the Execution themselves.
 const startNothing: StartExecution = async () => {};
@@ -72,7 +85,7 @@ describe("the tracer bullet", () => {
     const outcome = await executeApproval(startedApprovalIds[0] ?? "", { MOCK: channel });
 
     expect(outcome).toMatchObject({ status: "SUCCEEDED" });
-    expect(channel.deliveries).toEqual([{ idempotencyKey: expect.any(String), payload: EXPECTED_PAYLOAD }]);
+    expect(channel.deliveries).toEqual([{ idempotencyKey: expect.any(String), attempt: 1, payload: EXPECTED_PAYLOAD }]);
     expect(await getTask(mia, workspaceId, taskId)).toMatchObject({ ok: true, value: { status: "COMPLETED" } });
     expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
       ok: true,
@@ -180,32 +193,155 @@ describe("the execution service", () => {
     expect(channel.deliveries).toEqual([]);
   });
 
-  // Inngest may deliver an event twice. Retries come with ticket 10.
-  it("executes each Approval once: a second run sends nothing", async () => {
-    const { approvalId } = await setUpApproved();
+  // Inngest may deliver an event twice.
+  it("treats a duplicate run after a success as done: nothing is sent again", async () => {
+    const { mia, workspaceId, approvalId } = await setUpApproved();
     const channel = createMockChannel();
     await executeApproval(approvalId, { MOCK: channel });
 
     const again = await executeApproval(approvalId, { MOCK: channel });
 
-    expect(again).toEqual({ status: "REFUSED", reason: "ALREADY_ATTEMPTED" });
+    expect(again).toEqual({ status: "REFUSED", reason: "ALREADY_SUCCEEDED" });
     expect(channel.deliveries).toHaveLength(1);
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { executions: [{ attempt: 1, status: "SUCCEEDED" }] },
+    });
   });
+});
 
-  it("records a failed delivery as a FAILED attempt with a safe error, and rethrows", async () => {
+describe("failed attempts and retries", () => {
+  it("retries a failed attempt with the same idempotency key: two attempts, one success, no new approval", async () => {
     const { mia, workspaceId, approvalId } = await setUpApproved();
-    const outage = new Error("connection refused: token=sk-secret-123");
-    const failingChannel: ChannelAdapter = {
-      deliver: async () => {
-        throw outage;
+    const calls: Delivery[] = [];
+    const failsOnce: ChannelAdapter = {
+      deliver: async (delivery) => {
+        calls.push(delivery);
+        if (calls.length === 1) throw new NotDeliveredError(SECRET_IN_ERROR);
+        return { deliveryId: "delivered-on-retry" };
       },
     };
 
-    await expect(executeApproval(approvalId, { MOCK: failingChannel })).rejects.toBe(outage);
+    const first = await executeApproval(approvalId, { MOCK: failsOnce });
+    const retry = await executeApproval(approvalId, { MOCK: failsOnce });
 
+    expect(first).toMatchObject({ status: "FAILED", willRetry: true });
+    expect(retry).toMatchObject({ status: "SUCCEEDED" });
+    expect(calls.map(({ attempt }) => attempt)).toEqual([1, 2]);
+    expect(calls[1]?.idempotencyKey).toBe(calls[0]?.idempotencyKey);
     expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
       ok: true,
-      value: { executions: [{ attempt: 1, status: "FAILED", error: DELIVERY_FAILED, finishedAt: expect.any(Date) }] },
+      value: {
+        status: "APPROVED",
+        executions: [
+          { attempt: 1, status: "FAILED", error: DELIVERY_FAILED, result: null },
+          { attempt: 2, status: "SUCCEEDED", error: null, result: { deliveryId: "delivered-on-retry" } },
+        ],
+      },
     });
+    expect(await listActivity(mia, workspaceId)).toMatchObject({
+      ok: true,
+      value: [
+        { event: "EXECUTION_SUCCEEDED", details: { attempt: 2 } },
+        { event: "EXECUTION_FAILED", actorName: null, approvalId, details: { attempt: 1, error: DELIVERY_FAILED, final: false } },
+        { event: "APPROVAL_APPROVED" },
+        { event: "PROPOSED_ACTION_SUBMITTED" },
+        { event: "BRAND_CREATED" },
+      ],
+    });
+  });
+
+  it("calls the Channel once when two runs of the same Approval overlap", async () => {
+    const { approvalId } = await setUpApproved();
+    const channel = createMockChannel();
+    const slowChannel: ChannelAdapter = {
+      deliver: async (delivery) => {
+        await new Promise((resolve) => setTimeout(resolve, SLOW_DELIVERY_MS));
+        return channel.deliver(delivery);
+      },
+    };
+
+    const outcomes = await Promise.all([
+      executeApproval(approvalId, { MOCK: slowChannel }),
+      executeApproval(approvalId, { MOCK: slowChannel }),
+    ]);
+
+    expect(channel.deliveries).toHaveLength(1);
+    expect(outcomes).toEqual(
+      expect.arrayContaining([
+        { status: "SUCCEEDED", executionId: expect.any(String) },
+        { status: "REFUSED", reason: "IN_PROGRESS" },
+      ]),
+    );
+  });
+
+  it("stops after the last attempt fails, and logs that failure as final", async () => {
+    const { mia, workspaceId, approvalId } = await setUpApproved();
+    const channel = createMockChannel({ failedAttempts: MAX_EXECUTION_ATTEMPTS });
+    const outcomes: ExecutionOutcome[] = [];
+    for (let run = 0; run < MAX_EXECUTION_ATTEMPTS; run += 1) {
+      outcomes.push(await executeApproval(approvalId, { MOCK: channel }));
+    }
+
+    const afterLast = await executeApproval(approvalId, { MOCK: channel });
+
+    expect(outcomes.map((outcome) => outcome.status === "FAILED" && outcome.willRetry)).toEqual([true, true, false]);
+    expect(afterLast).toEqual({ status: "REFUSED", reason: "NO_ATTEMPTS_LEFT" });
+    expect(channel.deliveries).toEqual([]);
+    const activity = await listActivity(mia, workspaceId);
+    const failures = activity.ok ? activity.value.filter((entry) => entry.event === "EXECUTION_FAILED") : [];
+    expect(failures.map((entry) => entry.details)).toEqual([
+      { attempt: 3, error: DELIVERY_FAILED, final: true },
+      { attempt: 2, error: DELIVERY_FAILED, final: false },
+      { attempt: 1, error: DELIVERY_FAILED, final: false },
+    ]);
+  });
+
+  it("never retries an attempt that may have gone out, keeps the Channel's error out, and locks the version", async () => {
+    const { mia, workspaceId, approvalId } = await setUpApproved();
+    const timesOut: ChannelAdapter = {
+      deliver: async () => {
+        throw new Error(SECRET_IN_ERROR);
+      },
+    };
+    const channel = createMockChannel();
+
+    const outcome = await executeApproval(approvalId, { MOCK: timesOut });
+    const retry = await executeApproval(approvalId, { MOCK: channel });
+    const edit = await editProposedContent(mia, workspaceId, approvalId, { body: "An edited post." });
+
+    expect(outcome).toMatchObject({ status: "UNCERTAIN" });
+    expect(retry).toEqual({ status: "REFUSED", reason: "MAY_HAVE_BEEN_DELIVERED" });
+    expect(channel.deliveries).toEqual([]);
+    expect(edit).toMatchObject({ ok: false, error: { code: "CONFLICT", message: NOT_EDITABLE } });
+    expect(await getApproval(mia, workspaceId, approvalId)).toMatchObject({
+      ok: true,
+      value: { executions: [{ attempt: 1, status: "UNCERTAIN", error: DELIVERY_UNCERTAIN }] },
+    });
+    expect(JSON.stringify(await listActivity(mia, workspaceId))).not.toContain("sk-secret");
+  });
+
+  it("does not retry an Approval superseded after a failed attempt", async () => {
+    const { mia, workspaceId, approvalId } = await setUpApproved();
+    const channel = createMockChannel({ failedAttempts: 1 });
+    await executeApproval(approvalId, { MOCK: channel });
+    const edit = await editProposedContent(mia, workspaceId, approvalId, { body: "An edited post." });
+    if (!edit.ok) throw new Error("expected a failed attempt to allow the edit");
+
+    const retry = await executeApproval(approvalId, { MOCK: channel });
+
+    expect(retry).toEqual({ status: "REFUSED", reason: "NOT_APPROVED" });
+    expect(channel.deliveries).toEqual([]);
+  });
+
+  // The execution service never writes a second success; the database refuses one anyway.
+  it("lets the database hold at most one SUCCEEDED Execution per Approval", async () => {
+    const { approvalId } = await setUpApproved();
+    const success = { approvalId, idempotencyKey: `approval:${approvalId}`, status: "SUCCEEDED" as const };
+    await db.execution.create({ data: { ...success, attempt: 1 } });
+
+    const second = db.execution.create({ data: { ...success, attempt: 2 } });
+
+    await expect(second).rejects.toSatisfy(isUniqueViolation);
   });
 });

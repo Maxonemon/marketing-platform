@@ -1,8 +1,10 @@
 // Prisma 7: the connection URL lives in prisma.config.ts, and the client connects through @prisma/adapter-pg.
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  // For the one-success-per-Approval index on Execution.
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -268,16 +270,21 @@ model Approval {
   @@index([status, expiresAt])
 }
 
+// FAILED means the Channel is sure nothing went out, so it may be retried. UNCERTAIN
+// means it may have gone out (the Channel failed after sending, or the attempt was left
+// STARTED): it is never retried, and only a person checking the Channel can tell.
 enum ExecutionStatus {
   STARTED
   SUCCEEDED
   FAILED
+  UNCERTAIN
 }
 
 // One attempt to carry out an Approved Proposed Action; only
 // src/lib/workflows/execution-service.ts writes them. Every attempt for an Approval
 // shares the idempotency key derived from it, and the unique attempt number keeps two
-// runs from both claiming the same attempt.
+// runs from both claiming the same attempt. The partial unique index allows at most one
+// SUCCEEDED attempt per Approval, so nothing is recorded as going out twice.
 model Execution {
   id             String          @id @default(cuid())
   approvalId     String
@@ -292,6 +299,9 @@ model Execution {
   approval Approval @relation(fields: [approvalId], references: [id], onDelete: Cascade)
 
   @@unique([approvalId, attempt])
+  @@unique([approvalId], map: "Execution_one_success_per_approval", where: raw("status = 'SUCCEEDED'"))
+  // The reconcile sweep looks up attempts left STARTED.
+  @@index([status, startedAt])
 }
 
 enum ActivityEvent {
@@ -304,6 +314,7 @@ enum ActivityEvent {
   APPROVAL_SUPERSEDED
   APPROVAL_EXPIRED
   EXECUTION_SUCCEEDED
+  EXECUTION_FAILED
 }
 
 // Append-only: src/lib/app/activity-log.ts only ever inserts entries. NoAction keeps a
